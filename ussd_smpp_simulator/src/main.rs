@@ -17,6 +17,7 @@ pub struct Config {
     pub ussd: UssdConfig,
     pub client_simulator: ClientSimulatorConfig,
     pub logging: LoggingConfig,
+    pub response_percentage: ResponsePercentageConfig,
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -82,6 +83,15 @@ pub struct ClientSimulatorConfig {
     pub password: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ResponsePercentageConfig {
+    pub success_percentage: f64,
+    pub failure_percentage: f64,
+    pub no_response_percentage: f64,
+    pub failure_error_code: u32,
+    pub no_response_delay_ms: u64,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -142,6 +152,13 @@ impl Default for Config {
             logging: LoggingConfig {
                 debug: false,
                 log_file: "".to_string(),
+            },
+            response_percentage: ResponsePercentageConfig {
+                success_percentage: 95.0,
+                failure_percentage: 4.0,
+                no_response_percentage: 1.0,
+                failure_error_code: 0x00000008, // ESME_RSYSERR
+                no_response_delay_ms: 5000,
             },
         }
     }
@@ -436,25 +453,43 @@ impl UssdConnectionHandler {
         println!("Received USSD SUBMIT_SM");
         
         let submit_sm = self.parse_submit_sm(&pdu.body);
-        let message_id = self.generate_message_id();
         
-        // Send SUBMIT_SM_RESP
-        let body = format!("{}\0", message_id).into_bytes();
-        let response = SmppPdu {
-            header: SmppHeader {
-                command_length: 16 + body.len() as u32,
-                command_id: SUBMIT_SM_RESP,
-                command_status: ESME_ROK,
-                sequence_number: pdu.header.sequence_number,
-            },
-            body,
-        };
+        // Determine response type based on configured percentages
+        let response_type = self.determine_response_type();
         
-        self.send_pdu(response)?;
-        println!("SUBMIT_SM_RESP sent with message_id: {}", message_id);
-        
-        // Process USSD request and send response
-        self.process_ussd_request(&submit_sm)?;
+        match response_type {
+            ResponseType::Success => {
+                // Normal processing - send success response
+                let message_id = self.generate_message_id();
+                let body = format!("{}\0", message_id).into_bytes();
+                let response = SmppPdu {
+                    header: SmppHeader {
+                        command_length: 16 + body.len() as u32,
+                        command_id: SUBMIT_SM_RESP,
+                        command_status: ESME_ROK,
+                        sequence_number: pdu.header.sequence_number,
+                    },
+                    body,
+                };
+                
+                self.send_pdu(response)?;
+                println!("SUBMIT_SM_RESP sent with message_id: {}", message_id);
+                
+                // Process USSD request and send response
+                self.process_ussd_request(&submit_sm)?;
+            }
+            ResponseType::Failure => {
+                // Send failure response
+                println!("Simulating failure response for SUBMIT_SM");
+                self.send_submit_sm_resp_error(pdu.header.sequence_number, self.config.response_percentage.failure_error_code)?;
+            }
+            ResponseType::NoResponse => {
+                // No response - just log and delay
+                println!("Simulating no response for SUBMIT_SM");
+                thread::sleep(Duration::from_millis(self.config.response_percentage.no_response_delay_ms));
+                // Don't send any response
+            }
+        }
         
         Ok(())
     }
@@ -664,6 +699,22 @@ impl UssdConnectionHandler {
         Ok(())
     }
 
+    fn send_submit_sm_resp_error(&mut self, sequence_number: u32, error_code: u32) -> std::io::Result<()> {
+        let response = SmppPdu {
+            header: SmppHeader {
+                command_length: 16,
+                command_id: SUBMIT_SM_RESP,
+                command_status: error_code,
+                sequence_number,
+            },
+            body: Vec::new(),
+        };
+        
+        self.send_pdu(response)?;
+        println!("SUBMIT_SM_RESP sent with error code: 0x{:08X}", error_code);
+        Ok(())
+    }
+
     fn parse_submit_sm(&self, body: &[u8]) -> SubmitSmPdu {
         let mut pos = 0;
         let service_type = self.read_c_string(body, &mut pos);
@@ -827,6 +878,39 @@ impl UssdConnectionHandler {
         
         format!("SESS{}", timestamp)
     }
+
+    fn determine_response_type(&self) -> ResponseType {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        
+        // Generate a pseudo-random number based on current time
+        let mut hasher = DefaultHasher::new();
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+            .hash(&mut hasher);
+        
+        let random_value = (hasher.finish() % 10000) as f64 / 100.0; // 0-99.99%
+        
+        let success_threshold = self.config.response_percentage.success_percentage;
+        let failure_threshold = success_threshold + self.config.response_percentage.failure_percentage;
+        
+        if random_value < success_threshold {
+            ResponseType::Success
+        } else if random_value < failure_threshold {
+            ResponseType::Failure
+        } else {
+            ResponseType::NoResponse
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum ResponseType {
+    Success,
+    Failure,
+    NoResponse,
 }
 
 // Forwarding structures for communication with client simulator

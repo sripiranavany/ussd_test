@@ -41,6 +41,7 @@ The server component provides:
 - Dynamic response generation based on user input
 - Support for multiple concurrent sessions
 - Flexible server configuration (host, port, credentials)
+- Load testing capabilities with response percentage configuration
 
 ### 2. USSD Client Simulator (`ussd_client_simulator/`)
 

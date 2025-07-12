@@ -51,5 +51,12 @@ price = 70.0
 data = "10GB"
 
 [logging]
-debug = true
-log_file = ""
+debug = false
+log_file = "server.log"
+
+[response_percentage]
+success_percentage = 95.0
+failure_percentage = 4.0
+no_response_percentage = 1.0
+failure_error_code = 0x00000008  # ESME_RSYSERR
+no_response_delay_ms = 5000
