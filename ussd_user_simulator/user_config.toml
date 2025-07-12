@@ -1,0 +1,45 @@
+[server]
+host = "127.0.0.1"
+port = 2775
+connection_timeout_ms = 5000
+reconnect_attempts = 3
+keepalive_interval_ms = 30000
+
+[authentication]
+system_id = "USSDMobileUser"
+password = "mobile123"
+system_type = "USSD"
+
+[phone]
+default_msisdn = "1234567890"
+operator_name = "MyTelecom"
+balance = 25.5
+data_balance = 2.5
+country_code = "1"
+network_code = "001"
+
+[ui]
+animation_delay_ms = 800
+auto_clear_screen = true
+show_debug_info = false
+show_performance_stats = true
+session_timeout_ms = 30000
+max_input_length = 160
+
+[logging]
+debug = false
+log_file = "ussd_simulator.log"
+log_level = "info"
+enable_file_logging = true
+
+[testing]
+auto_test_on_startup = false
+test_scenarios_file = "test_scenarios.toml"
+performance_test_enabled = false
+concurrent_sessions = 1
+
+[advanced]
+smpp_version = "3.4"
+enquire_link_interval_ms = 60000
+pdu_timeout_ms = 10000
+max_concurrent_requests = 5

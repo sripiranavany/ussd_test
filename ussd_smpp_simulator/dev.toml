@@ -1,0 +1,47 @@
+# Development Configuration for USSD SMPP Simulator
+
+[server]
+# Local development binding
+host = "127.0.0.1"
+port = 2775
+
+[smpp]
+# Development system ID
+system_id = "USSD_DEV_GW"
+max_connections = 10
+connection_timeout = 60
+
+[ussd]
+# Test service code
+service_code = "*999#"
+session_timeout = 60
+
+[ussd.menu]
+welcome_message = "DEV MODE - USSD Test Service"
+main_menu = [
+    "1. Test Balance",
+    "2. Test Packages",
+    "3. Test Support",
+    "9. Debug Info",
+    "0. Exit"
+]
+
+[ussd.responses]
+balance_message = "TEST BALANCE: $999.99\nTEST DATA: 999GB\nExpiry: Never"
+invalid_code = "DEV: Invalid test code. Use *999# for testing."
+invalid_option = "DEV: Invalid option. Please try again."
+goodbye_message = "DEV MODE: Test session ended. Thank you!"
+
+[[ussd.data_packages.packages]]
+name = "Test Package 1"
+price = 1.0
+data = "100MB"
+
+[[ussd.data_packages.packages]]
+name = "Test Package 2"
+price = 5.0
+data = "1GB"
+
+[logging]
+debug = true
+log_file = ""

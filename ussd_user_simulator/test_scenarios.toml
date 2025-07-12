@@ -1,0 +1,134 @@
+# USSD User Simulator Test Scenarios Configuration
+
+[metadata]
+name = "USSD Test Scenarios"
+version = "1.0"
+description = "Comprehensive test scenarios for USSD user simulator"
+
+[[scenarios]]
+name = "Main Menu Navigation"
+description = "Test the main USSD menu navigation"
+timeout_ms = 30000
+expected_success_rate = 95.0
+
+[[scenarios.steps]]
+ussd_code = "*123#"
+description = "Access main menu"
+expected_keywords = ["Welcome", "Menu", "Balance", "Data"]
+timeout_ms = 5000
+
+[[scenarios.steps]]
+ussd_code = "1"
+description = "Select balance inquiry"
+expected_keywords = ["balance", "$", "amount"]
+timeout_ms = 3000
+
+[[scenarios.steps]]
+ussd_code = "0"
+description = "Return to main menu"
+expected_keywords = ["main", "menu", "options"]
+timeout_ms = 3000
+
+[[scenarios]]
+name = "Balance Check Flow"
+description = "Test balance inquiry functionality"
+timeout_ms = 15000
+expected_success_rate = 98.0
+
+[[scenarios.steps]]
+ussd_code = "*100#"
+description = "Direct balance check"
+expected_keywords = ["balance", "$", "current"]
+timeout_ms = 5000
+
+[[scenarios]]
+name = "Data Balance Flow"
+description = "Test data balance inquiry"
+timeout_ms = 15000
+expected_success_rate = 98.0
+
+[[scenarios.steps]]
+ussd_code = "*199#"
+description = "Check data balance"
+expected_keywords = ["data", "GB", "balance"]
+timeout_ms = 5000
+
+[[scenarios]]
+name = "Service Menu Navigation"
+description = "Test service menu options"
+timeout_ms = 45000
+expected_success_rate = 90.0
+
+[[scenarios.steps]]
+ussd_code = "*123#"
+description = "Access main menu"
+expected_keywords = ["Welcome", "Menu"]
+timeout_ms = 5000
+
+[[scenarios.steps]]
+ussd_code = "2"
+description = "Select data packages"
+expected_keywords = ["Data", "Package", "GB"]
+timeout_ms = 5000
+
+[[scenarios.steps]]
+ussd_code = "1"
+description = "Select first package"
+expected_keywords = ["confirm", "purchase", "1GB"]
+timeout_ms = 5000
+
+[[scenarios.steps]]
+ussd_code = "0"
+description = "Cancel and return"
+expected_keywords = ["cancelled", "main", "menu"]
+timeout_ms = 3000
+
+[[scenarios]]
+name = "Error Handling Test"
+description = "Test error handling with invalid codes"
+timeout_ms = 20000
+expected_success_rate = 100.0
+
+[[scenarios.steps]]
+ussd_code = "*999#"
+description = "Invalid USSD code"
+expected_keywords = ["invalid", "error", "not found"]
+timeout_ms = 5000
+
+[[scenarios.steps]]
+ussd_code = "*000#"
+description = "Network test code"
+expected_keywords = ["network", "test", "OK"]
+timeout_ms = 5000
+
+[[scenarios]]
+name = "Performance Test"
+description = "Test multiple rapid requests"
+timeout_ms = 60000
+expected_success_rate = 85.0
+concurrent_requests = 3
+
+[[scenarios.steps]]
+ussd_code = "*123#"
+description = "Rapid menu access 1"
+expected_keywords = ["Welcome"]
+timeout_ms = 5000
+
+[[scenarios.steps]]
+ussd_code = "*100#"
+description = "Rapid balance check"
+expected_keywords = ["balance"]
+timeout_ms = 5000
+
+[[scenarios.steps]]
+ussd_code = "*199#"
+description = "Rapid data check"
+expected_keywords = ["data"]
+timeout_ms = 5000
+
+[load_test]
+enabled = false
+duration_seconds = 300
+requests_per_second = 10
+scenarios_to_run = ["Balance Check Flow", "Data Balance Flow"]
+report_interval_seconds = 30

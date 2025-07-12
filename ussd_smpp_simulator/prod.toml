@@ -1,0 +1,57 @@
+# Production Configuration for USSD SMPP Simulator
+
+[server]
+# Bind to all interfaces for production
+host = "0.0.0.0"
+port = 2775
+
+[smpp]
+# Production system ID
+system_id = "USSD_PROD_GW"
+max_connections = 500
+connection_timeout = 600
+
+[ussd]
+# Production service code
+service_code = "*100#"
+session_timeout = 300
+
+[ussd.menu]
+welcome_message = "Welcome to TelecomCorp Services"
+main_menu = [
+    "1. Check Balance",
+    "2. Buy Data Bundle",
+    "3. Buy Airtime",
+    "4. Customer Care",
+    "0. Exit"
+]
+
+[ussd.responses]
+balance_message = "Your balance: $15.75\nData remaining: 1.2GB\nValid until: 2025-08-15"
+invalid_code = "Invalid service code. Please try again."
+invalid_option = "Invalid selection. Please choose a valid option."
+goodbye_message = "Thank you for choosing TelecomCorp. Have a great day!"
+
+[[ussd.data_packages.packages]]
+name = "Daily Pack"
+price = 2.0
+data = "500MB"
+
+[[ussd.data_packages.packages]]
+name = "Weekly Pack"
+price = 8.0
+data = "2GB"
+
+[[ussd.data_packages.packages]]
+name = "Monthly Pack"
+price = 25.0
+data = "10GB"
+
+[[ussd.data_packages.packages]]
+name = "Unlimited Weekend"
+price = 5.0
+data = "Unlimited"
+
+[logging]
+debug = false
+log_file = "/var/log/ussd_smpp_simulator.log"

@@ -1,0 +1,48 @@
+[server]
+host = "127.0.0.1"
+port = 2775
+
+[smpp]
+system_id = "USSDGateway"
+max_connections = 100
+connection_timeout = 300
+
+[ussd]
+service_code = "*123#"
+session_timeout = 180
+
+[ussd.menu]
+welcome_message = "Welcome to MyTelecom USSD Service"
+main_menu = [
+    "1. Balance Inquiry",
+    "2. Data Packages",
+    "3. Customer Service",
+    "0. Exit",
+]
+
+[ussd.responses]
+balance_message = """
+Your current balance is $25.50
+Your data balance is 2.5GB"""
+invalid_code = "Invalid USSD code. Please try again."
+invalid_option = "Invalid option. Please try again."
+goodbye_message = "Thank you for using MyTelecom USSD Service. Goodbye!"
+
+[[ussd.data_packages.packages]]
+name = "1GB Package"
+price = 10.0
+data = "1GB"
+
+[[ussd.data_packages.packages]]
+name = "5GB Package"
+price = 40.0
+data = "5GB"
+
+[[ussd.data_packages.packages]]
+name = "10GB Package"
+price = 70.0
+data = "10GB"
+
+[logging]
+debug = false
+log_file = ""
