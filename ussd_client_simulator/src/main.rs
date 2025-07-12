@@ -1,5 +1,5 @@
 use std::io::{Read, Write};
-use std::net::TcpStream;
+use std::net::{TcpStream, TcpListener};
 use std::thread;
 use std::time::Duration;
 use std::env;
@@ -340,22 +340,23 @@ impl UssdSmppClient {
 }
 
 // Configuration structures
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ClientConfig {
     pub server: ServerConfig,
     pub authentication: AuthConfig,
     pub defaults: DefaultsConfig,
     pub test_cases: TestCasesConfig,
     pub logging: LoggingConfig,
+    pub forwarding: Option<ForwardingConfig>, // Add forwarding configuration
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct ServerConfig {
     pub host: String,
     pub port: u16,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct AuthConfig {
     pub system_id: String,
     pub password: String,
@@ -363,29 +364,59 @@ pub struct AuthConfig {
     pub test_password: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct DefaultsConfig {
     pub default_msisdn: String,
     pub initial_ussd_code: String,
     pub request_delay_ms: u64,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TestCasesConfig {
     pub test_cases: Vec<TestCase>,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct TestCase {
     pub msisdn: String,
     pub ussd_code: String,
     pub description: String,
 }
 
-#[derive(Debug, Deserialize, Serialize)]
+#[derive(Debug, Deserialize, Serialize, Clone)]
 pub struct LoggingConfig {
     pub debug: bool,
     pub log_file: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ForwardingConfig {
+    pub listen_port: u16,
+    pub enabled: bool,
+    pub responses: ForwardingResponses,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct ForwardingResponses {
+    pub custom_services: Vec<CustomService>,
+    pub menu_options: Vec<MenuOption>,
+    pub default_response: String,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct CustomService {
+    pub ussd_code: String,
+    pub name: String,
+    pub welcome_message: String,
+    pub menu_items: Vec<String>,
+    pub continue_session: bool,
+}
+
+#[derive(Debug, Deserialize, Serialize, Clone)]
+pub struct MenuOption {
+    pub option: String,
+    pub response_text: String,
+    pub continue_session: bool,
 }
 
 impl Default for ClientConfig {
@@ -418,42 +449,230 @@ impl Default for ClientConfig {
                         ussd_code: "1".to_string(),
                         description: "Test balance inquiry".to_string(),
                     },
-                    TestCase {
-                        msisdn: "1234567890".to_string(),
-                        ussd_code: "0".to_string(),
-                        description: "Test return to main menu".to_string(),
-                    },
-                    TestCase {
-                        msisdn: "1234567890".to_string(),
-                        ussd_code: "2".to_string(),
-                        description: "Test data packages menu".to_string(),
-                    },
-                    TestCase {
-                        msisdn: "1234567890".to_string(),
-                        ussd_code: "1".to_string(),
-                        description: "Test 1GB package selection".to_string(),
-                    },
-                    TestCase {
-                        msisdn: "1234567890".to_string(),
-                        ussd_code: "YES".to_string(),
-                        description: "Test package confirmation".to_string(),
-                    },
-                    TestCase {
-                        msisdn: "1234567890".to_string(),
-                        ussd_code: "0".to_string(),
-                        description: "Test exit".to_string(),
-                    },
-                    TestCase {
-                        msisdn: "9876543210".to_string(),
-                        ussd_code: "*999#".to_string(),
-                        description: "Test invalid USSD code".to_string(),
-                    },
                 ],
             },
             logging: LoggingConfig {
                 debug: false,
                 log_file: "".to_string(),
             },
+            forwarding: Some(ForwardingConfig {
+                enabled: true,
+                listen_port: 9091,
+                responses: ForwardingResponses {
+                    custom_services: vec![
+                        CustomService {
+                            ussd_code: "*100#".to_string(),
+                            name: "Custom Service A".to_string(),
+                            welcome_message: "Welcome to Custom Service A!".to_string(),
+                            menu_items: vec![
+                                "1. Check Status".to_string(),
+                                "2. Get Info".to_string(),
+                                "0. Exit".to_string(),
+                            ],
+                            continue_session: true,
+                        },
+                        CustomService {
+                            ussd_code: "*200#".to_string(),
+                            name: "Custom Service B".to_string(),
+                            welcome_message: "Welcome to Custom Service B!".to_string(),
+                            menu_items: vec![
+                                "1. Account Details".to_string(),
+                                "2. Settings".to_string(),
+                                "0. Exit".to_string(),
+                            ],
+                            continue_session: true,
+                        },
+                        CustomService {
+                            ussd_code: "*300#".to_string(),
+                            name: "Customer Support".to_string(),
+                            welcome_message: "Customer Support".to_string(),
+                            menu_items: vec![
+                                "Call: 1-800-HELP".to_string(),
+                                "Email: support@company.com".to_string(),
+                                "Thank you!".to_string(),
+                            ],
+                            continue_session: false,
+                        },
+                    ],
+                    menu_options: vec![
+                        MenuOption {
+                            option: "1".to_string(),
+                            response_text: "Status: Active\nBalance: $25.50\nNext payment: 2024-01-15\n\n0. Back to menu".to_string(),
+                            continue_session: true,
+                        },
+                        MenuOption {
+                            option: "2".to_string(),
+                            response_text: "Account Details:\nName: John Doe\nPhone: +1234567890\nPlan: Premium\n\n0. Back to menu".to_string(),
+                            continue_session: true,
+                        },
+                        MenuOption {
+                            option: "0".to_string(),
+                            response_text: "Thank you for using our service!".to_string(),
+                            continue_session: false,
+                        },
+                    ],
+                    default_response: "Unknown command: {}\nPlease try again or dial 0 to exit.".to_string(),
+                },
+            }),
+        }
+    }
+}
+
+impl Default for ForwardingConfig {
+    fn default() -> Self {
+        ForwardingConfig {
+            enabled: true,
+            listen_port: 9091,
+            responses: ForwardingResponses {
+                custom_services: vec![
+                    CustomService {
+                        ussd_code: "*777#".to_string(),
+                        name: "Test Service".to_string(),
+                        welcome_message: "Welcome to Test Service!".to_string(),
+                        menu_items: vec![
+                            "1. Option 1".to_string(),
+                            "2. Option 2".to_string(),
+                            "0. Exit".to_string(),
+                        ],
+                        continue_session: true,
+                    },
+                ],
+                menu_options: vec![
+                    MenuOption {
+                        option: "1".to_string(),
+                        response_text: "You selected option 1\n\n0. Back to menu".to_string(),
+                        continue_session: true,
+                    },
+                    MenuOption {
+                        option: "2".to_string(),
+                        response_text: "You selected option 2\n\n0. Back to menu".to_string(),
+                        continue_session: true,
+                    },
+                    MenuOption {
+                        option: "0".to_string(),
+                        response_text: "Thank you for using our service!".to_string(),
+                        continue_session: false,
+                    },
+                ],
+                default_response: "Unknown command: {}\nPlease try again or dial 0 to exit.".to_string(),
+            },
+        }
+    }
+}
+
+// Simple protocol for forwarding USSD requests
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ForwardingRequest {
+    pub msisdn: String,
+    pub ussd_code: String,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ForwardingResponse {
+    pub response_text: String,
+    pub continue_session: bool,
+}
+
+// USSD Forwarding Service
+pub struct UssdForwardingService {
+    config: ClientConfig,
+    listener: TcpListener,
+}
+
+impl UssdForwardingService {
+    pub fn new(config: ClientConfig) -> std::io::Result<Self> {
+        let forwarding_config = config.forwarding.as_ref().unwrap();
+        let listener = TcpListener::bind(format!("127.0.0.1:{}", forwarding_config.listen_port))?;
+        
+        println!("USSD Forwarding Service listening on port {}", forwarding_config.listen_port);
+        
+        Ok(UssdForwardingService {
+            config,
+            listener,
+        })
+    }
+
+    pub fn start(&self) -> std::io::Result<()> {
+        for stream in self.listener.incoming() {
+            match stream {
+                Ok(mut stream) => {
+                    let config = self.config.clone();
+                    thread::spawn(move || {
+                        if let Err(e) = Self::handle_client(&mut stream, &config) {
+                            eprintln!("Error handling client: {}", e);
+                        }
+                    });
+                }
+                Err(e) => {
+                    eprintln!("Error accepting connection: {}", e);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn handle_client(stream: &mut TcpStream, config: &ClientConfig) -> std::io::Result<()> {
+        let mut buffer = [0; 1024];
+        let bytes_read = stream.read(&mut buffer)?;
+        
+        if bytes_read == 0 {
+            return Ok(());
+        }
+
+        let request_data = &buffer[..bytes_read];
+        let request: ForwardingRequest = serde_json::from_slice(request_data)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+
+        println!("Forwarding service received request: {:?}", request);
+
+        // Process the USSD request
+        let response = Self::process_ussd_request(&request, config);
+        
+        // Send response back
+        let response_json = serde_json::to_string(&response)
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        
+        stream.write_all(response_json.as_bytes())?;
+        stream.flush()?;
+
+        println!("Forwarding service sent response: {:?}", response);
+        Ok(())
+    }
+
+    fn process_ussd_request(request: &ForwardingRequest, config: &ClientConfig) -> ForwardingResponse {
+        let forwarding_config = config.forwarding.as_ref().unwrap();
+        
+        // Check if it's a custom service USSD code
+        for service in &forwarding_config.responses.custom_services {
+            if service.ussd_code == request.ussd_code {
+                let mut response_text = service.welcome_message.clone();
+                if !service.menu_items.is_empty() {
+                    response_text.push('\n');
+                    response_text.push_str(&service.menu_items.join("\n"));
+                }
+                
+                return ForwardingResponse {
+                    response_text,
+                    continue_session: service.continue_session,
+                };
+            }
+        }
+        
+        // Check if it's a menu option
+        for option in &forwarding_config.responses.menu_options {
+            if option.option == request.ussd_code {
+                return ForwardingResponse {
+                    response_text: option.response_text.clone(),
+                    continue_session: option.continue_session,
+                };
+            }
+        }
+        
+        // Default response for unknown commands
+        ForwardingResponse {
+            response_text: forwarding_config.responses.default_response.replace("{}", &request.ussd_code),
+            continue_session: true,
         }
     }
 }
@@ -593,29 +812,7 @@ fn load_config(config_path: &str) -> Result<ClientConfig, Box<dyn std::error::Er
     }
 }
 
-fn print_usage() {
-    println!("USSD Client Simulator");
-    println!("Usage: ussd_client_simulator [OPTIONS] <MODE> [ARGS]");
-    println!();
-    println!("Options:");
-    println!("  -c, --config <CONFIG>    Path to configuration file (default: client_config.toml)");
-    println!("  -h, --host <HOST>        Override server host from config");
-    println!("  -p, --port <PORT>        Override server port from config");
-    println!("  --create-config          Create a default config file and exit");
-    println!("  --help                   Show this help message");
-    println!();
-    println!("Modes:");
-    println!("  user <msisdn>            Start interactive user simulator");
-    println!("  test                     Run automated test suite");
-    println!("  client <msisdn>          Start basic client");
-    println!();
-    println!("Examples:");
-    println!("  ussd_client_simulator user 1234567890");
-    println!("  ussd_client_simulator test");
-    println!("  ussd_client_simulator -c /path/to/config.toml user 1234567890");
-    println!("  ussd_client_simulator --host 192.168.1.100 test");
-    println!("  ussd_client_simulator --create-config");
-}
+// Function removed - usage is now printed inline
 
 fn parse_args() -> Result<(ClientConfig, Option<String>, Option<u16>, Vec<String>), Box<dyn std::error::Error>> {
     let args: Vec<String> = env::args().collect();
@@ -659,7 +856,11 @@ fn parse_args() -> Result<(ClientConfig, Option<String>, Option<u16>, Vec<String
                 std::process::exit(0);
             }
             "--help" => {
-                print_usage();
+                println!("Usage:");
+                println!("  {} user <msisdn>     - Start interactive user simulator", std::env::args().next().unwrap_or_default());
+                println!("  {} test              - Run automated test suite", std::env::args().next().unwrap_or_default());
+                println!("  {} client <msisdn>   - Start basic client", std::env::args().next().unwrap_or_default());
+                println!("  {} forwarding        - Start USSD forwarding service", std::env::args().next().unwrap_or_default());
                 std::process::exit(0);
             }
             _ => {
@@ -678,7 +879,11 @@ fn main() -> std::io::Result<()> {
         Ok((config, host, port, args)) => (config, host, port, args),
         Err(e) => {
             eprintln!("Error parsing arguments: {}", e);
-            print_usage();
+            println!("Usage:");
+            println!("  {} user <msisdn>     - Start interactive user simulator", std::env::args().next().unwrap_or_default());
+            println!("  {} test              - Run automated test suite", std::env::args().next().unwrap_or_default());
+            println!("  {} client <msisdn>   - Start basic client", std::env::args().next().unwrap_or_default());
+            println!("  {} forwarding        - Start USSD forwarding service", std::env::args().next().unwrap_or_default());
             std::process::exit(1);
         }
     };
@@ -696,6 +901,7 @@ fn main() -> std::io::Result<()> {
         println!("  {} user <msisdn>     - Start interactive user simulator", std::env::args().next().unwrap_or_default());
         println!("  {} test              - Run automated test suite", std::env::args().next().unwrap_or_default());
         println!("  {} client <msisdn>   - Start basic client", std::env::args().next().unwrap_or_default());
+        println!("  {} forwarding        - Start USSD forwarding service", std::env::args().next().unwrap_or_default());
         return Ok(());
     }
 
@@ -738,9 +944,26 @@ fn main() -> std::io::Result<()> {
                 client.unbind()?;
             }
         }
+        "forwarding" => {
+            if let Some(forwarding_config) = &config.forwarding {
+                if forwarding_config.enabled {
+                    println!("Starting USSD Forwarding Service...");
+                    let forwarding_service = UssdForwardingService::new(config)?;
+                    forwarding_service.start()?;
+                } else {
+                    println!("Forwarding service is disabled in configuration");
+                }
+            } else {
+                println!("Forwarding configuration not found");
+            }
+        }
         _ => {
             println!("Unknown mode: {}", mode);
-            print_usage();
+            println!("Usage:");
+            println!("  {} user <msisdn>     - Start interactive user simulator", std::env::args().next().unwrap_or_default());
+            println!("  {} test              - Run automated test suite", std::env::args().next().unwrap_or_default());
+            println!("  {} client <msisdn>   - Start basic client", std::env::args().next().unwrap_or_default());
+            println!("  {} forwarding        - Start USSD forwarding service", std::env::args().next().unwrap_or_default());
         }
     }
 

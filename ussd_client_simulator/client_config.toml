@@ -1,6 +1,6 @@
 [server]
 host = "127.0.0.1"
-port = 9090
+port = 2775
 
 [authentication]
 system_id = "USSDClient"
@@ -23,36 +23,110 @@ msisdn = "1234567890"
 ussd_code = "1"
 description = "Test balance inquiry"
 
-[[test_cases.test_cases]]
-msisdn = "1234567890"
-ussd_code = "0"
-description = "Test return to main menu"
-
-[[test_cases.test_cases]]
-msisdn = "1234567890"
-ussd_code = "2"
-description = "Test data packages menu"
-
-[[test_cases.test_cases]]
-msisdn = "1234567890"
-ussd_code = "1"
-description = "Test 1GB package selection"
-
-[[test_cases.test_cases]]
-msisdn = "1234567890"
-ussd_code = "YES"
-description = "Test package confirmation"
-
-[[test_cases.test_cases]]
-msisdn = "1234567890"
-ussd_code = "0"
-description = "Test exit"
-
-[[test_cases.test_cases]]
-msisdn = "9876543210"
-ussd_code = "*999#"
-description = "Test invalid USSD code"
-
 [logging]
 debug = false
 log_file = ""
+
+[forwarding]
+listen_port = 9091
+enabled = true
+
+[forwarding.responses]
+default_response = """
+Unknown command: {}
+Please try again or dial 0 to exit."""
+
+[[forwarding.responses.custom_services]]
+ussd_code = "*100#"
+name = "Custom Service A"
+welcome_message = "Welcome to Custom Service A!"
+menu_items = [
+    "1. Check Status",
+    "2. Get Info",
+    "0. Exit",
+]
+continue_session = true
+
+[[forwarding.responses.custom_services]]
+ussd_code = "*200#"
+name = "Custom Service B"
+welcome_message = "Welcome to Custom Service B!"
+menu_items = [
+    "1. Account Details",
+    "2. Settings",
+    "0. Exit",
+]
+continue_session = true
+
+[[forwarding.responses.custom_services]]
+ussd_code = "*300#"
+name = "Customer Support"
+welcome_message = "Customer Support"
+menu_items = [
+    "Call: 1-800-HELP",
+    "Email: support@company.com",
+    "Thank you!",
+]
+continue_session = false
+
+[[forwarding.responses.custom_services]]
+ussd_code = "*555#"
+name = "My Custom Banking Service"
+welcome_message = "🏦 Welcome to My Banking Service!"
+menu_items = [
+    "1. Check Balance",
+    "2. Transfer Money",
+    "3. Pay Bills",
+    "#. Exit",
+]
+continue_session = true
+
+[[forwarding.responses.menu_options]]
+option = "1"
+response_text = """
+💰 Account Balance: $1,234.56
+Available Balance: $1,200.00
+Last Transaction: -$34.56 (Coffee Shop)
+
+0. Back to main menu
+#. Exit"""
+continue_session = true
+
+[[forwarding.responses.menu_options]]
+option = "2"
+response_text = """
+💸 Transfer Money
+Enter recipient phone number:
+(Feature not implemented in demo)
+
+0. Back to main menu
+#. Exit"""
+continue_session = true
+
+[[forwarding.responses.menu_options]]
+option = "3"
+response_text = """
+📱 Pay Bills
+Select bill type:
+1. Electricity
+2. Water
+3. Internet
+
+0. Back to main menu
+#. Exit"""
+continue_session = true
+
+[[forwarding.responses.menu_options]]
+option = "0"
+response_text = """
+🏦 Welcome to My Banking Service!
+1. Check Balance
+2. Transfer Money
+3. Pay Bills
+#. Exit"""
+continue_session = true
+
+[[forwarding.responses.menu_options]]
+option = "#"
+response_text = "Thank you for using our banking service! 👋"
+continue_session = false

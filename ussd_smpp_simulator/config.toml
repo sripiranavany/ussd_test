@@ -7,6 +7,13 @@ system_id = "USSDGateway"
 max_connections = 100
 connection_timeout = 300
 
+[client_simulator]
+enabled = true
+host = "127.0.0.1"
+port = 9091
+system_id = "ForwardingClient"
+password = "forward123"
+
 [ussd]
 service_codes = ["*123#", "*999#", "*100#", "*199#"]
 session_timeout = 180

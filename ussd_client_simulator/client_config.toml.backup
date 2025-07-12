@@ -1,0 +1,62 @@
+[server]
+host = "127.0.0.1"
+port = 2775
+
+[authentication]
+system_id = "USSDClient"
+password = "password123"
+test_system_id = "USSDTestClient"
+test_password = "testpass123"
+
+[defaults]
+default_msisdn = "1234567890"
+initial_ussd_code = "*123#"
+request_delay_ms = 500
+
+[[test_cases.test_cases]]
+msisdn = "1234567890"
+ussd_code = "*123#"
+description = "Test main menu access"
+
+[[test_cases.test_cases]]
+msisdn = "1234567890"
+ussd_code = "1"
+description = "Test balance inquiry"
+
+[[test_cases.test_cases]]
+msisdn = "1234567890"
+ussd_code = "0"
+description = "Test return to main menu"
+
+[[test_cases.test_cases]]
+msisdn = "1234567890"
+ussd_code = "2"
+description = "Test data packages menu"
+
+[[test_cases.test_cases]]
+msisdn = "1234567890"
+ussd_code = "1"
+description = "Test 1GB package selection"
+
+[[test_cases.test_cases]]
+msisdn = "1234567890"
+ussd_code = "YES"
+description = "Test package confirmation"
+
+[[test_cases.test_cases]]
+msisdn = "1234567890"
+ussd_code = "0"
+description = "Test exit"
+
+[[test_cases.test_cases]]
+msisdn = "9876543210"
+ussd_code = "*999#"
+description = "Test invalid USSD code"
+
+[logging]
+debug = false
+log_file = ""
+
+[forwarding]
+enabled = true
+listen_port = 9091

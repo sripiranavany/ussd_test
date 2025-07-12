@@ -11,6 +11,13 @@ system_id = "USSD_DEV_GW"
 max_connections = 10
 connection_timeout = 60
 
+[client_simulator]
+enabled = true
+host = "127.0.0.1"
+port = 9091
+system_id = "ForwardingClient"
+password = "forward123"
+
 
 [ussd]
 # Accept multiple test service codes

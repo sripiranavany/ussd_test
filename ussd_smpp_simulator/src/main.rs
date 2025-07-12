@@ -15,6 +15,7 @@ pub struct Config {
     pub server: ServerConfig,
     pub smpp: SmppConfig,
     pub ussd: UssdConfig,
+    pub client_simulator: ClientSimulatorConfig,
     pub logging: LoggingConfig,
 }
 
@@ -72,6 +73,15 @@ pub struct LoggingConfig {
     pub log_file: String,
 }
 
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ClientSimulatorConfig {
+    pub enabled: bool,
+    pub host: String,
+    pub port: u16,
+    pub system_id: String,
+    pub password: String,
+}
+
 impl Default for Config {
     fn default() -> Self {
         Config {
@@ -121,6 +131,13 @@ impl Default for Config {
                         },
                     ],
                 },
+            },
+            client_simulator: ClientSimulatorConfig {
+                enabled: false,
+                host: "127.0.0.1".to_string(),
+                port: 9090,
+                system_id: "USSDClient".to_string(),
+                password: "password123".to_string(),
             },
             logging: LoggingConfig {
                 debug: false,
@@ -192,6 +209,7 @@ pub enum UssdState {
     BalanceInquiry,
     DataPackages,
     CustomerService,
+    Forwarded,
     Terminated,
 }
 
@@ -459,8 +477,8 @@ impl UssdConnectionHandler {
                 }
             });
             
-            // Check if this is a new USSD service code that should reset the session
-            if self.config.ussd.service_codes.iter().any(|code| ussd_code.starts_with(&code.trim_end_matches('#'))) {
+            // Check if this is a new USSD code (starts with * and ends with #) that should reset the session
+            if ussd_code.starts_with('*') && ussd_code.ends_with('#') {
                 session.state = UssdState::Initial;
                 session.menu_level = 0;
                 session.last_request = String::new();
@@ -486,8 +504,19 @@ impl UssdConnectionHandler {
                         self.config.ussd.menu.welcome_message,
                         self.config.ussd.menu.main_menu.join("\n"))
                 } else {
-                    session.state = UssdState::Terminated;
-                    self.config.ussd.responses.invalid_code.clone()
+                    // Try to forward to client simulator for custom codes
+                    match forward_ussd_request(&self.config, &session.msisdn, request) {
+                        Ok(response) => {
+                            session.state = UssdState::Forwarded;
+                            println!("Forwarded USSD code {} to client simulator, response: {}", request, response);
+                            response
+                        }
+                        Err(e) => {
+                            println!("Failed to forward USSD code {} to client simulator: {}", request, e);
+                            session.state = UssdState::Terminated;
+                            self.config.ussd.responses.invalid_code.clone()
+                        }
+                    }
                 }
             }
             UssdState::MainMenu => {
@@ -549,6 +578,24 @@ impl UssdConnectionHandler {
                             }
                         }
                         _ => "Press 0 to return to main menu or 00 to exit".to_string(),
+                    }
+                }
+            }
+            UssdState::Forwarded => {
+                // Continue forwarding requests to client simulator
+                match forward_ussd_request(&self.config, &session.msisdn, request) {
+                    Ok(response) => {
+                        println!("Forwarded follow-up USSD request {} to client simulator, response: {}", request, response);
+                        // Check if the response indicates session should end
+                        if response.to_lowercase().contains("thank you") || response.to_lowercase().contains("goodbye") {
+                            session.state = UssdState::Terminated;
+                        }
+                        response
+                    }
+                    Err(e) => {
+                        println!("Failed to forward follow-up USSD request {} to client simulator: {}", request, e);
+                        session.state = UssdState::Terminated;
+                        "Service temporarily unavailable. Thank you!".to_string()
                     }
                 }
             }
@@ -782,6 +829,20 @@ impl UssdConnectionHandler {
     }
 }
 
+// Forwarding structures for communication with client simulator
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ForwardingRequest {
+    pub msisdn: String,
+    pub ussd_code: String,
+    pub session_id: Option<String>,
+}
+
+#[derive(Debug, Deserialize, Serialize)]
+pub struct ForwardingResponse {
+    pub response_text: String,
+    pub continue_session: bool,
+}
+
 fn load_config(config_path: &str) -> Result<Config, Box<dyn std::error::Error>> {
     if Path::new(config_path).exists() {
         let config_content = fs::read_to_string(config_path)?;
@@ -885,6 +946,54 @@ fn parse_args() -> Result<(Config, Option<String>, Option<u16>), Box<dyn std::er
     
     let config = load_config(&config_path)?;
     Ok((config, host_override, port_override))
+}
+
+// Function to forward USSD requests to client simulator
+fn forward_ussd_request(config: &Config, msisdn: &str, ussd_code: &str) -> Result<String, String> {
+    let client_config = &config.client_simulator;
+    
+    if !client_config.enabled {
+        return Err("Client simulator forwarding is disabled".to_string());
+    }
+    
+    let server_addr = format!("{}:{}", client_config.host, client_config.port);
+    
+    // Create forwarding request
+    let request = ForwardingRequest {
+        msisdn: msisdn.to_string(),
+        ussd_code: ussd_code.to_string(),
+        session_id: None,
+    };
+    
+    // Connect to client simulator
+    match TcpStream::connect(&server_addr) {
+        Ok(mut stream) => {
+            // Send request
+            let request_json = serde_json::to_string(&request)
+                .map_err(|e| format!("Failed to serialize request: {}", e))?;
+            
+            stream.write_all(request_json.as_bytes())
+                .map_err(|e| format!("Failed to send request: {}", e))?;
+            
+            stream.flush()
+                .map_err(|e| format!("Failed to flush stream: {}", e))?;
+            
+            // Read response
+            let mut buffer = [0; 1024];
+            let bytes_read = stream.read(&mut buffer)
+                .map_err(|e| format!("Failed to read response: {}", e))?;
+            
+            let response_data = &buffer[..bytes_read];
+            let response: ForwardingResponse = serde_json::from_slice(response_data)
+                .map_err(|e| format!("Failed to parse response: {}", e))?;
+            
+            println!("Forwarded USSD request {} from {} to client simulator, got response: {}", 
+                     ussd_code, msisdn, response.response_text);
+            
+            Ok(response.response_text)
+        }
+        Err(e) => Err(format!("Failed to connect to client simulator at {}: {}", server_addr, e))
+    }
 }
 
 fn main() -> std::io::Result<()> {
