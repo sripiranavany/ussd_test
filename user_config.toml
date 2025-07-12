@@ -23,11 +23,11 @@ animation_delay_ms = 800
 auto_clear_screen = true
 show_debug_info = false
 show_performance_stats = true
-session_timeout_ms = 5000
+session_timeout_ms = 10000
 max_input_length = 160
 
 [logging]
-debug = false
+debug = true
 log_file = "ussd_simulator.log"
 log_level = "info"
 enable_file_logging = true
@@ -41,5 +41,5 @@ concurrent_sessions = 1
 [advanced]
 smpp_version = "3.4"
 enquire_link_interval_ms = 60000
-pdu_timeout_ms = 10000
+pdu_timeout_ms = 30000
 max_concurrent_requests = 5

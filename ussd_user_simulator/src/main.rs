@@ -475,38 +475,58 @@ impl UssdSmppClient {
         if success {
             if self.config.logging.debug {
                 println!("✅ SUBMIT_SM_RESP received");
+                println!("� SUBMIT_SM_RESP body ({} bytes): {:?}", submit_resp.body.len(), submit_resp.body);
+                if !submit_resp.body.is_empty() {
+                    println!("📋 SUBMIT_SM_RESP body as string: {:?}", String::from_utf8_lossy(&submit_resp.body));
+                }
+                println!("�🔄 Waiting for DELIVER_SM response...");
             }
             
             // Wait for DELIVER_SM with USSD response
-            let deliver_sm = self.read_pdu_with_timeout(Duration::from_millis(self.config.ui.session_timeout_ms))?;
-            if deliver_sm.header.command_id == DELIVER_SM {
-                let response_text = self.parse_deliver_sm(&deliver_sm.body);
-                
-                // Send DELIVER_SM_RESP
-                let deliver_resp = SmppPdu {
-                    header: SmppHeader {
-                        command_length: 16,
-                        command_id: DELIVER_SM_RESP,
-                        command_status: ESME_ROK,
-                        sequence_number: deliver_sm.header.sequence_number,
-                    },
-                    body: Vec::new(),
-                };
-                self.send_pdu(deliver_resp)?;
-                
-                let total_time = start_time.elapsed().as_millis() as u64;
-                self.stats.record_request(total_time, true);
-                self.last_activity = Some(Instant::now());
-                
-                if self.config.logging.debug {
-                    println!("📥 USSD response received: {} ({}ms)", response_text, total_time);
+            let deliver_sm_result = self.read_pdu_with_timeout(Duration::from_millis(self.config.ui.session_timeout_ms));
+            match deliver_sm_result {
+                Ok(deliver_sm) => {
+                    if self.config.logging.debug {
+                        println!("📦 Received PDU with command_id: 0x{:08x}", deliver_sm.header.command_id);
+                    }
+                    if deliver_sm.header.command_id == DELIVER_SM {
+                        let response_text = self.parse_deliver_sm(&deliver_sm.body);
+                        
+                        // Send DELIVER_SM_RESP
+                        let deliver_resp = SmppPdu {
+                            header: SmppHeader {
+                                command_length: 16,
+                                command_id: DELIVER_SM_RESP,
+                                command_status: ESME_ROK,
+                                sequence_number: deliver_sm.header.sequence_number,
+                            },
+                            body: Vec::new(),
+                        };
+                        self.send_pdu(deliver_resp)?;
+                        
+                        let total_time = start_time.elapsed().as_millis() as u64;
+                        self.stats.record_request(total_time, true);
+                        self.last_activity = Some(Instant::now());
+                        
+                        if self.config.logging.debug {
+                            println!("📥 USSD response received: {} ({}ms)", response_text, total_time);
+                        }
+                        
+                        Ok(response_text)
+                    } else {
+                        let total_time = start_time.elapsed().as_millis() as u64;
+                        self.stats.record_request(total_time, false);
+                        Err(std::io::Error::new(std::io::ErrorKind::Other, "Expected DELIVER_SM"))
+                    }
                 }
-                
-                Ok(response_text)
-            } else {
-                let total_time = start_time.elapsed().as_millis() as u64;
-                self.stats.record_request(total_time, false);
-                Err(std::io::Error::new(std::io::ErrorKind::Other, "Expected DELIVER_SM"))
+                Err(e) => {
+                    if self.config.logging.debug {
+                        println!("❌ Timeout waiting for DELIVER_SM: {}", e);
+                    }
+                    let total_time = start_time.elapsed().as_millis() as u64;
+                    self.stats.record_request(total_time, false);
+                    Err(e)
+                }
             }
         } else {
             let total_time = start_time.elapsed().as_millis() as u64;
@@ -641,6 +661,9 @@ impl UssdSmppClient {
 
     fn read_pdu_with_timeout(&mut self, timeout: Duration) -> std::io::Result<SmppPdu> {
         if let Some(ref mut stream) = self.stream {
+            if self.config.logging.debug {
+                println!("🔍 Setting read timeout to {:?}", timeout);
+            }
             // Set read timeout
             stream.set_read_timeout(Some(timeout))?;
             
@@ -652,10 +675,26 @@ impl UssdSmppClient {
             
             match result {
                 Ok(()) => {
+                    if self.config.logging.debug {
+                        println!("📋 Raw header bytes: {:02x?}", header_buf);
+                    }
                     let command_length = u32::from_be_bytes([header_buf[0], header_buf[1], header_buf[2], header_buf[3]]);
                     let command_id = u32::from_be_bytes([header_buf[4], header_buf[5], header_buf[6], header_buf[7]]);
                     let command_status = u32::from_be_bytes([header_buf[8], header_buf[9], header_buf[10], header_buf[11]]);
                     let sequence_number = u32::from_be_bytes([header_buf[12], header_buf[13], header_buf[14], header_buf[15]]);
+
+                    // Validate PDU header - command_length should be reasonable
+                    if command_length < 16 || command_length > 65536 {
+                        if self.config.logging.debug {
+                            println!("❌ Invalid PDU length: {}, trying to recover...", command_length);
+                        }
+                        return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid PDU length"));
+                    }
+
+                    if self.config.logging.debug {
+                        println!("📖 Read PDU header - Length: {}, Command: 0x{:08x}, Status: 0x{:08x}, Seq: {}", 
+                                command_length, command_id, command_status, sequence_number);
+                    }
 
                     let header = SmppHeader {
                         command_length,
@@ -671,9 +710,17 @@ impl UssdSmppClient {
                     }
 
                     self.last_activity = Some(Instant::now());
+                    if self.config.logging.debug {
+                        println!("✅ Successfully read PDU with {} bytes of body", body_length);
+                    }
                     Ok(SmppPdu { header, body })
                 }
-                Err(e) => Err(e)
+                Err(e) => {
+                    if self.config.logging.debug {
+                        println!("❌ Error reading PDU: {}", e);
+                    }
+                    Err(e)
+                }
             }
         } else {
             Err(std::io::Error::new(std::io::ErrorKind::NotConnected, "Not connected"))

@@ -45,8 +45,8 @@ max_connections = 100        # Maximum concurrent connections
 connection_timeout = 300     # Connection timeout in seconds
 
 [ussd]
-service_code = "*123#"       # USSD service code
-session_timeout = 180        # Session timeout in seconds
+service_codes = ["*123#", "*999#"]  # USSD service codes (array)
+session_timeout = 180              # Session timeout in seconds
 
 [ussd.menu]
 welcome_message = "Welcome to MyTelecom USSD Service"
@@ -119,7 +119,7 @@ This uses the default `config.toml` file.
 
 The menu structure is fully configurable through the configuration file. The default menu provides:
 
-1. **Main Menu** (accessed via configurable service code, default `*123#`)
+1. **Main Menu** (accessed via configurable service codes, default `["*123#", "*999#"]`)
    - Balance Inquiry
    - Data Packages
    - Customer Service

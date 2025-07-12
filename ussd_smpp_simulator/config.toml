@@ -8,7 +8,7 @@ max_connections = 100
 connection_timeout = 300
 
 [ussd]
-service_code = "*123#"
+service_codes = ["*123#", "*999#", "*100#", "*199#"]
 session_timeout = 180
 
 [ussd.menu]
@@ -44,5 +44,5 @@ price = 70.0
 data = "10GB"
 
 [logging]
-debug = false
+debug = true
 log_file = ""

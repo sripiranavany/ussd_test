@@ -11,9 +11,10 @@ system_id = "USSD_DEV_GW"
 max_connections = 10
 connection_timeout = 60
 
+
 [ussd]
-# Test service code
-service_code = "*999#"
+# Accept multiple test service codes
+service_codes = ["*999#", "*123#", "*100#", "*199#"]
 session_timeout = 60
 
 [ussd.menu]
@@ -26,9 +27,10 @@ main_menu = [
     "0. Exit"
 ]
 
+
 [ussd.responses]
 balance_message = "TEST BALANCE: $999.99\nTEST DATA: 999GB\nExpiry: Never"
-invalid_code = "DEV: Invalid test code. Use *999# for testing."
+invalid_code = "DEV: Invalid test code. Use one of *999#, *123#, *100#, *199# for testing."
 invalid_option = "DEV: Invalid option. Please try again."
 goodbye_message = "DEV MODE: Test session ended. Thank you!"
 
@@ -43,5 +45,5 @@ price = 5.0
 data = "1GB"
 
 [logging]
-debug = true
+debug = false
 log_file = ""

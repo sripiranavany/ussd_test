@@ -33,7 +33,7 @@ pub struct SmppConfig {
 
 #[derive(Debug, Deserialize, Serialize)]
 pub struct UssdConfig {
-    pub service_code: String,
+    pub service_codes: Vec<String>,
     pub session_timeout: u64,
     pub menu: MenuConfig,
     pub responses: ResponsesConfig,
@@ -85,7 +85,7 @@ impl Default for Config {
                 connection_timeout: 300,
             },
             ussd: UssdConfig {
-                service_code: "*123#".to_string(),
+                service_codes: vec!["*123#".to_string()],
                 session_timeout: 180,
                 menu: MenuConfig {
                     welcome_message: "Welcome to MyTelecom USSD Service".to_string(),
@@ -421,14 +421,15 @@ impl UssdConnectionHandler {
         let message_id = self.generate_message_id();
         
         // Send SUBMIT_SM_RESP
+        let body = format!("{}\0", message_id).into_bytes();
         let response = SmppPdu {
             header: SmppHeader {
-                command_length: 21,
+                command_length: 16 + body.len() as u32,
                 command_id: SUBMIT_SM_RESP,
                 command_status: ESME_ROK,
                 sequence_number: pdu.header.sequence_number,
             },
-            body: format!("{}\0", message_id).into_bytes(),
+            body,
         };
         
         self.send_pdu(response)?;
@@ -458,11 +459,18 @@ impl UssdConnectionHandler {
                 }
             });
             
+            // Check if this is a new USSD service code that should reset the session
+            if self.config.ussd.service_codes.iter().any(|code| ussd_code.starts_with(&code.trim_end_matches('#'))) {
+                session.state = UssdState::Initial;
+                session.menu_level = 0;
+                session.last_request = String::new();
+            }
+            
             self.generate_ussd_response(session, &ussd_code)
         };
         
         // Send DELIVER_SM with USSD response
-        thread::sleep(Duration::from_millis(100)); // Small delay to simulate processing
+        thread::sleep(Duration::from_millis(50)); // Minimal delay
         self.send_ussd_response(&msisdn, &response_text)?;
         
         Ok(())
@@ -471,7 +479,7 @@ impl UssdConnectionHandler {
     fn generate_ussd_response(&self, session: &mut UssdSession, request: &str) -> String {
         match &session.state {
             UssdState::Initial => {
-                if request.starts_with(&self.config.ussd.service_code.trim_end_matches('#')) {
+                if self.config.ussd.service_codes.iter().any(|code| request.starts_with(&code.trim_end_matches('#'))) {
                     session.state = UssdState::MainMenu;
                     session.menu_level = 1;
                     format!("{}\n{}", 
@@ -545,7 +553,8 @@ impl UssdConnectionHandler {
                 }
             }
             UssdState::Terminated => {
-                format!("USSD session has ended. Please dial {} to start a new session.", self.config.ussd.service_code)
+                let code_list = self.config.ussd.service_codes.join(", ");
+                format!("USSD session has ended. Please dial one of [{}] to start a new session.", code_list)
             }
         }
     }
@@ -576,9 +585,19 @@ impl UssdConnectionHandler {
         body.push(0); // replace_if_present_flag
         body.push(0); // data_coding (GSM 7-bit)
         body.push(0); // sm_default_msg_id
-        body.push(response_text.len() as u8); // sm_length
-        body.extend_from_slice(response_text.as_bytes()); // short_message
+        let truncated_response = if response_text.len() > 255 {
+            &response_text[..255]
+        } else {
+            response_text
+        };
+        if self.config.logging.debug {
+            println!("🔤 Response text length: {} chars", truncated_response.len());
+            println!("🔤 Response text: {:?}", truncated_response);
+        }
+        body.push(truncated_response.len() as u8); // sm_length
+        body.extend_from_slice(truncated_response.as_bytes()); // short_message
 
+        let body_len = body.len();
         let deliver_sm = SmppPdu {
             header: SmppHeader {
                 command_length: 16 + body.len() as u32,
@@ -590,6 +609,9 @@ impl UssdConnectionHandler {
         };
 
         self.send_pdu(deliver_sm)?;
+        if self.config.logging.debug {
+            println!("📦 DELIVER_SM sent with command_id: 0x{:08x}, body_length: {}", DELIVER_SM, body_len);
+        }
         println!("USSD response sent to {}: {}", msisdn, response_text);
         
         Ok(())
@@ -721,6 +743,16 @@ impl UssdConnectionHandler {
         buffer.extend_from_slice(&pdu.header.sequence_number.to_be_bytes());
         
         buffer.extend_from_slice(&pdu.body);
+        
+        if self.config.logging.debug {
+            println!("📤 Sending PDU: cmd=0x{:08x}, len={}, body_len={}", 
+                pdu.header.command_id, pdu.header.command_length, pdu.body.len());
+            if pdu.body.len() > 0 {
+                println!("📤 PDU body: {:?}", pdu.body);
+                println!("📤 PDU body as string: {:?}", String::from_utf8_lossy(&pdu.body));
+            }
+            println!("📤 Full PDU buffer ({} bytes): {:02x?}", buffer.len(), buffer);
+        }
         
         self.stream.write_all(&buffer)?;
         self.stream.flush()?;
@@ -875,7 +907,7 @@ fn main() -> std::io::Result<()> {
     let addr = format!("{}:{}", config.server.host, config.server.port);
     
     println!("Starting USSD SMPP Simulator");
-    println!("Service Code: {}", config.ussd.service_code);
+    println!("Service Codes: {:?}", config.ussd.service_codes);
     println!("System ID: {}", config.smpp.system_id);
     
     let server = UssdSmppServer::new(config);
