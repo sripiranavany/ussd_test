@@ -9,6 +9,46 @@ use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use serde::{Deserialize, Serialize};
 
+// Connection tracking for forwarding
+#[derive(Debug, Clone)]
+pub struct ConnectionManager {
+    pub connections: Arc<Mutex<HashMap<String, Arc<Mutex<TcpStream>>>>>,
+}
+
+impl ConnectionManager {
+    fn new() -> Self {
+        ConnectionManager {
+            connections: Arc::new(Mutex::new(HashMap::new())),
+        }
+    }
+    
+    fn add_connection(&self, connection_id: String, stream: Arc<Mutex<TcpStream>>) {
+        let mut connections = self.connections.lock().unwrap();
+        connections.insert(connection_id, stream);
+    }
+    
+    fn remove_connection(&self, connection_id: &str) {
+        let mut connections = self.connections.lock().unwrap();
+        connections.remove(connection_id);
+    }
+    
+    fn get_forwarding_connection(&self, sessions: &HashMap<String, Session>) -> Option<Arc<Mutex<TcpStream>>> {
+        let connections = self.connections.lock().unwrap();
+        
+        // Find first session that can receive forwards and has an active connection
+        for (_, session) in sessions {
+            if session.can_receive_forwards && session.bound {
+                if let Some(conn_id) = &session.connection_id {
+                    if let Some(stream) = connections.get(conn_id) {
+                        return Some(stream.clone());
+                    }
+                }
+            }
+        }
+        None
+    }
+}
+
 // Configuration structures
 #[derive(Debug, Deserialize, Serialize)]
 pub struct Config {
@@ -81,6 +121,7 @@ pub struct ClientSimulatorConfig {
     pub port: u16,
     pub system_id: String,
     pub password: String,
+    pub forwarding_clients: Vec<String>, // List of system IDs that can receive forwards
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -148,6 +189,7 @@ impl Default for Config {
                 port: 9090,
                 system_id: "USSDClient".to_string(),
                 password: "password123".to_string(),
+                forwarding_clients: vec!["ForwardingClient".to_string(), "JavaClient".to_string()],
             },
             logging: LoggingConfig {
                 debug: false,
@@ -236,6 +278,8 @@ pub struct Session {
     pub password: String,
     pub bound: bool,
     pub bind_type: u32,
+    pub can_receive_forwards: bool,
+    pub connection_id: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -273,6 +317,7 @@ pub struct UssdSmppServer {
     pub ussd_sessions: Arc<Mutex<HashMap<String, UssdSession>>>,
     pub sequence_counter: Arc<Mutex<u32>>,
     pub config: Arc<Config>,
+    pub connection_manager: ConnectionManager,
 }
 
 impl UssdSmppServer {
@@ -282,6 +327,7 @@ impl UssdSmppServer {
             ussd_sessions: Arc::new(Mutex::new(HashMap::new())),
             sequence_counter: Arc::new(Mutex::new(1)),
             config: Arc::new(config),
+            connection_manager: ConnectionManager::new(),
         }
     }
 
@@ -300,9 +346,10 @@ impl UssdSmppServer {
                     let ussd_sessions = Arc::clone(&self.ussd_sessions);
                     let sequence_counter = Arc::clone(&self.sequence_counter);
                     let config = Arc::clone(&self.config);
+                    let connection_manager = self.connection_manager.clone();
                     
                     thread::spawn(move || {
-                        let mut handler = UssdConnectionHandler::new(stream, sessions, ussd_sessions, sequence_counter, config);
+                        let mut handler = UssdConnectionHandler::new(stream, sessions, ussd_sessions, sequence_counter, config, connection_manager);
                         if let Err(e) = handler.handle() {
                             println!("Connection error: {}", e);
                         }
@@ -322,6 +369,8 @@ struct UssdConnectionHandler {
     sequence_counter: Arc<Mutex<u32>>,
     current_session: Option<String>,
     config: Arc<Config>,
+    connection_id: String,
+    connection_manager: ConnectionManager,
 }
 
 impl UssdConnectionHandler {
@@ -331,7 +380,14 @@ impl UssdConnectionHandler {
         ussd_sessions: Arc<Mutex<HashMap<String, UssdSession>>>,
         sequence_counter: Arc<Mutex<u32>>,
         config: Arc<Config>,
+        connection_manager: ConnectionManager,
     ) -> Self {
+        // Generate unique connection ID
+        let connection_id = format!("conn_{}", SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos());
+        
         UssdConnectionHandler {
             stream,
             sessions,
@@ -339,11 +395,16 @@ impl UssdConnectionHandler {
             sequence_counter,
             current_session: None,
             config,
+            connection_id,
+            connection_manager,
         }
     }
 
     fn handle(&mut self) -> std::io::Result<()> {
         println!("New USSD connection established");
+        
+        // Add connection to manager
+        self.connection_manager.add_connection(self.connection_id.clone(), Arc::new(Mutex::new(self.stream.try_clone()?)));
         
         loop {
             match self.read_pdu() {
@@ -365,6 +426,9 @@ impl UssdConnectionHandler {
             sessions.remove(session_id);
             println!("Session {} disconnected", session_id);
         }
+        
+        // Remove connection from manager
+        self.connection_manager.remove_connection(&self.connection_id);
         
         Ok(())
     }
@@ -424,18 +488,28 @@ impl UssdConnectionHandler {
         println!("Bind request from system_id: {}", system_id);
         
         let status = if !system_id.is_empty() && !password.is_empty() {
+            // Check if this system_id can receive forwarded requests
+            let can_receive_forwards = self.config.client_simulator.forwarding_clients
+                .contains(&system_id);
+            
             let session = Session {
                 system_id: system_id.clone(),
                 password: password.clone(),
                 bound: true,
                 bind_type: pdu.header.command_id,
+                can_receive_forwards,
+                connection_id: Some(self.connection_id.clone()),
             };
             
             let mut sessions = self.sessions.lock().unwrap();
             sessions.insert(system_id.clone(), session);
             self.current_session = Some(system_id.clone());
             
-            println!("Bind successful for system_id: {}", system_id);
+            if can_receive_forwards {
+                println!("Bind successful for system_id: {} (can receive forwards)", system_id);
+            } else {
+                println!("Bind successful for system_id: {} (regular client)", system_id);
+            }
             ESME_ROK
         } else {
             println!("Bind failed for system_id: {}", system_id);
@@ -539,15 +613,15 @@ impl UssdConnectionHandler {
                         self.config.ussd.menu.welcome_message,
                         self.config.ussd.menu.main_menu.join("\n"))
                 } else {
-                    // Try to forward to client simulator for custom codes
-                    match forward_ussd_request(&self.config, &session.msisdn, request) {
+                    // Try to forward to bound client
+                    match self.forward_to_bound_client(&session.msisdn, request) {
                         Ok(response) => {
                             session.state = UssdState::Forwarded;
-                            println!("Forwarded USSD code {} to client simulator, response: {}", request, response);
+                            println!("Forwarded USSD code {} to bound client, response: {}", request, response);
                             response
                         }
                         Err(e) => {
-                            println!("Failed to forward USSD code {} to client simulator: {}", request, e);
+                            println!("Failed to forward USSD code {} to bound client: {}", request, e);
                             session.state = UssdState::Terminated;
                             self.config.ussd.responses.invalid_code.clone()
                         }
@@ -617,10 +691,10 @@ impl UssdConnectionHandler {
                 }
             }
             UssdState::Forwarded => {
-                // Continue forwarding requests to client simulator
-                match forward_ussd_request(&self.config, &session.msisdn, request) {
+                // Continue forwarding requests to bound client
+                match self.forward_to_bound_client(&session.msisdn, request) {
                     Ok(response) => {
-                        println!("Forwarded follow-up USSD request {} to client simulator, response: {}", request, response);
+                        println!("Forwarded follow-up USSD request {} to bound client, response: {}", request, response);
                         // Check if the response indicates session should end
                         if response.to_lowercase().contains("thank you") || response.to_lowercase().contains("goodbye") {
                             session.state = UssdState::Terminated;
@@ -628,7 +702,7 @@ impl UssdConnectionHandler {
                         response
                     }
                     Err(e) => {
-                        println!("Failed to forward follow-up USSD request {} to client simulator: {}", request, e);
+                        println!("Failed to forward follow-up USSD request {} to bound client: {}", request, e);
                         session.state = UssdState::Terminated;
                         "Service temporarily unavailable. Thank you!".to_string()
                     }
@@ -904,6 +978,12 @@ impl UssdConnectionHandler {
             ResponseType::NoResponse
         }
     }
+
+    fn get_next_sequence(&self) -> u32 {
+        let mut counter = self.sequence_counter.lock().unwrap();
+        *counter += 1;
+        *counter
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -1077,6 +1157,83 @@ fn forward_ussd_request(config: &Config, msisdn: &str, ussd_code: &str) -> Resul
             Ok(response.response_text)
         }
         Err(e) => Err(format!("Failed to connect to client simulator at {}: {}", server_addr, e))
+    }
+}
+
+impl UssdConnectionHandler {
+    fn forward_to_bound_client(&self, msisdn: &str, ussd_code: &str) -> Result<String, String> {
+        let sessions = self.sessions.lock().unwrap();
+        
+        // Find a bound client that can receive forwards
+        if let Some(forward_stream) = self.connection_manager.get_forwarding_connection(&sessions) {
+            // Create a SUBMIT_SM to forward the request
+            let submit_sm = self.create_forward_submit_sm(msisdn, ussd_code)?;
+            
+            // Send via SMPP
+            {
+                let mut stream = forward_stream.lock().unwrap();
+                self.send_pdu_to_stream(&mut *stream, submit_sm)?;
+            }
+            
+            // Wait for response (simplified - in real implementation you'd handle this asynchronously)
+            // For now, return a default response
+            Ok("Request forwarded to bound client. Response handling not implemented yet.".to_string())
+        } else {
+            Err("No bound forwarding client available".to_string())
+        }
+    }
+    
+    fn create_forward_submit_sm(&self, msisdn: &str, ussd_code: &str) -> Result<SmppPdu, String> {
+        let mut body = Vec::new();
+        
+        // Build SUBMIT_SM PDU for forwarding
+        body.extend_from_slice(b"USSD\0"); // service_type
+        body.push(1); // source_addr_ton
+        body.push(1); // source_addr_npi
+        body.extend_from_slice(msisdn.as_bytes());
+        body.push(0); // null terminator
+        body.push(0); // dest_addr_ton
+        body.push(0); // dest_addr_npi
+        body.extend_from_slice(b"FORWARD\0"); // destination_addr
+        body.push(0x40); // esm_class (USSD)
+        body.push(0); // protocol_id
+        body.push(0); // priority_flag
+        body.extend_from_slice(b"\0"); // schedule_delivery_time
+        body.extend_from_slice(b"\0"); // validity_period
+        body.push(0); // registered_delivery
+        body.push(0); // replace_if_present_flag
+        body.push(0); // data_coding
+        body.push(0); // sm_default_msg_id
+        body.push(ussd_code.len() as u8); // sm_length
+        body.extend_from_slice(ussd_code.as_bytes());
+        
+        Ok(SmppPdu {
+            header: SmppHeader {
+                command_length: 16 + body.len() as u32,
+                command_id: SUBMIT_SM,
+                command_status: ESME_ROK,
+                sequence_number: self.get_next_sequence(),
+            },
+            body,
+        })
+    }
+    
+    fn send_pdu_to_stream(&self, stream: &mut TcpStream, pdu: SmppPdu) -> Result<(), String> {
+        let mut data = Vec::new();
+        
+        // Write header
+        data.extend_from_slice(&pdu.header.command_length.to_be_bytes());
+        data.extend_from_slice(&pdu.header.command_id.to_be_bytes());
+        data.extend_from_slice(&pdu.header.command_status.to_be_bytes());
+        data.extend_from_slice(&pdu.header.sequence_number.to_be_bytes());
+        
+        // Write body
+        data.extend_from_slice(&pdu.body);
+        
+        stream.write_all(&data).map_err(|e| e.to_string())?;
+        stream.flush().map_err(|e| e.to_string())?;
+        
+        Ok(())
     }
 }
 
