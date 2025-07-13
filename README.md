@@ -1,49 +1,51 @@
 # USSD SMPP Simulator System
 
-A complete USSD (Unstructured Supplementary Service Data) simulation system built in Rust, consisting of both server and client components that communicate via the SMPP (Short Message Peer-to-Peer) protocol.
+A comprehensive USSD (Unstructured Supplementary Service Data) system simulator built in Rust that demonstrates the interaction between mobile users, SMPP servers, and custom USSD service providers.
 
-## Overview
+## 🏗️ System Architecture
 
-This system simulates a telecommunications USSD service, allowing you to test USSD interactions without requiring actual mobile network infrastructure. It includes:
-
-- **USSD SMPP Server**: Handles USSD requests and provides menu-driven responses
-- **USSD Client Simulator**: Simulates mobile devices making USSD requests
-- **Configuration Management**: Flexible TOML-based configuration for both components
-- **Testing Framework**: Automated test suites and manual testing capabilities
-
-## System Architecture
+The system consists of three main components that work together to simulate a complete USSD ecosystem:
 
 ```
-┌─────────────────────┐    SMPP v3.4     ┌─────────────────────┐
-│  USSD Client        │◄────────────────►│  USSD SMPP Server   │
-│  Simulator          │   TCP/IP :9090   │                     │
-├─────────────────────┤                  ├─────────────────────┤
-│ • User Simulation   │                  │ • SMPP Protocol     │
-│ • Test Suite        │                  │ • USSD Menu System  │
-│ • Basic Client      │                  │ • Session Management│
-│ • Configuration     │                  │ • Configuration     │
-└─────────────────────┘                  └─────────────────────┘
+┌─────────────────┐    SMPP     ┌─────────────────┐    SMPP     ┌─────────────────┐
+│                 │◄──────────►│                 │◄──────────►│                 │
+│  User Simulator │             │  SMPP Server    │             │ Client Simulator│
+│                 │             │   Simulator     │             │                 │
+└─────────────────┘             └─────────────────┘             └─────────────────┘
+    📱 Mobile User                   🌐 Gateway                      🏢 Service Provider
 ```
 
-## Components
+### 1. **USSD User Simulator** (`ussd_user_simulator`)
+- **Role**: Simulates a mobile phone user dialing USSD codes
+- **System ID**: `USSDMobileUser`
+- **Features**:
+  - Interactive phone interface with visual display
+  - Support for standard USSD codes (*123#, *100#, *199#)
+  - Custom USSD code testing
+  - Performance statistics and monitoring
+  - Connection status tracking
 
-### 1. USSD SMPP Server (`ussd_smpp_simulator/`)
+### 2. **SMPP Server Simulator** (`ussd_smpp_simulator`)
+- **Role**: Acts as the telecom gateway/SMPP server
+- **System ID**: `USSDGateway`
+- **Features**:
+  - Handles multiple client connections simultaneously
+  - Routes USSD requests based on code patterns
+  - Manages two distinct client groups:
+    - **User Clients**: Mobile users initiating requests
+    - **Forwarding Clients**: Service providers handling custom codes
+  - Built-in responses for standard telecom services
+  - Configurable response percentages for testing scenarios
 
-The server component provides:
-- SMPP v3.4 protocol implementation
-- Multi-threaded connection handling
-- USSD menu system with configurable responses
-- Session management and state tracking
-- Comprehensive logging and debugging
-
-**Key Features:**
-- Configurable USSD menus (Balance inquiry, Data packages, Customer service)
-- Dynamic response generation based on user input
-- Support for multiple concurrent sessions
-- Flexible server configuration (host, port, credentials)
-- Load testing capabilities with response percentage configuration
-
-### 2. USSD Client Simulator (`ussd_client_simulator/`)
+### 3. **USSD Client Simulator** (`ussd_smpp_client_simulator`)
+- **Role**: Simulates a custom USSD service provider
+- **System ID**: `ForwardingClient`
+- **Features**:
+  - Handles custom USSD codes (e.g., *555*1#)
+  - Provides interactive menu systems
+  - Multi-level navigation support
+  - Session management with state tracking
+  - Custom service implementations
 
 The client component provides:
 - SMPP client implementation
@@ -56,6 +58,87 @@ The client component provides:
 - Interactive USSD session simulation
 - Automated testing with configurable test cases
 - Command-line argument support with configuration overrides
+
+## 🚀 Quick Start
+
+### Prerequisites
+- Rust 1.70+ installed
+- Terminal access
+
+### Building the System
+
+```bash
+# Build all components
+cd ussd_smpp_simulator && cargo build --release
+cd ../ussd_smpp_client_simulator && cargo build --release
+cd ../ussd_user_simulator && cargo build --release
+```
+
+### Running the System
+
+1. **Start the SMPP Server** (Terminal 1):
+```bash
+cd ussd_smpp_simulator
+./target/release/ussd_smpp_simulator
+```
+
+2. **Start the Client Simulator** (Terminal 2):
+```bash
+cd ussd_smpp_client_simulator
+./target/release/ussd_smpp_client_simulator
+```
+
+3. **Start the User Simulator** (Terminal 3):
+```bash
+cd ussd_user_simulator
+./target/release/ussd_user_simulator
+```
+
+## 📱 Testing the System
+
+### Standard USSD Codes (Handled by Server)
+- `*123#` - Main menu
+- `*100#` - Balance check
+- `*199#` - Data balance
+
+### Custom USSD Codes (Forwarded to Client)
+- `*555*1#` - Custom services menu
+- `*555*2#` - Bank services
+- `*555*3#` - Mobile services
+
+### Usage Flow
+1. Select option 4 "Custom USSD Code" in the user simulator
+2. Enter a custom code like `*555*1#`
+3. The system will:
+   - User simulator sends SUBMIT_SM to server
+   - Server forwards to client simulator
+   - Client processes and returns menu
+   - Server routes response back to user
+   - User sees the custom menu
+
+## ⚙️ Configuration
+
+### Server Configuration (`ussd_smpp_simulator/config.toml`)
+```toml
+[client_simulator]
+forwarding_clients = ["ForwardingClient", "JavaClient"]  # Service providers
+user_clients = ["USSDMobileUser"]                        # Mobile users
+
+[ussd]
+service_codes = ["*199#","*123#","*100#"]  # Server-handled codes
+```
+
+### Client Configuration (`ussd_smpp_client_simulator/client_config.toml`)
+```toml
+[ussd_codes]
+"*555*1#" = "main"  # Maps USSD codes to menu handlers
+```
+
+### User Configuration (`ussd_user_simulator/user_config.toml`)
+```toml
+[authentication]
+system_id = "USSDMobileUser"  # Must match server's user_clients list
+```
 
 ## Quick Start
 
@@ -104,117 +187,6 @@ cargo run -- test
 
 # Basic client mode
 cargo run -- client 1234567890
-```
-
-## Configuration
-
-### Server Configuration (`ussd_smpp_simulator/config.toml`)
-
-```toml
-[server]
-host = "0.0.0.0"
-port = 9090
-
-[smpp]
-system_id = "USSDGateway"
-max_connections = 100
-connection_timeout = 300
-
-[ussd]
-service_code = "*123#"
-session_timeout = 180
-
-[ussd.menu]
-welcome_message = "Welcome to MyTelecom USSD Service"
-main_menu = [
-    "1. Balance Inquiry",
-    "2. Data Packages", 
-    "3. Customer Service",
-    "0. Exit"
-]
-
-[ussd.responses]
-balance_message = "Your current balance is $25.50\nYour data balance is 2.5GB"
-invalid_code = "Invalid USSD code. Please try again."
-invalid_option = "Invalid option. Please try again."
-goodbye_message = "Thank you for using MyTelecom USSD Service. Goodbye!"
-
-[[ussd.data_packages.packages]]
-name = "1GB Package"
-price = 10.0
-data = "1GB"
-
-[logging]
-debug = true
-log_file = ""
-```
-
-### Client Configuration (`ussd_client_simulator/client_config.toml`)
-
-```toml
-[server]
-host = "127.0.0.1"
-port = 9090
-
-[authentication]
-system_id = "USSDClient"
-password = "password123"
-test_system_id = "USSDTestClient"
-test_password = "testpass123"
-
-[defaults]
-default_msisdn = "1234567890"
-initial_ussd_code = "*123#"
-request_delay_ms = 500
-
-[logging]
-debug = false
-log_file = ""
-
-[[test_cases.test_cases]]
-msisdn = "1234567890"
-ussd_code = "*123#"
-description = "Test main menu access"
-```
-
-## Usage Examples
-
-### Server Usage
-
-```bash
-# Start with default configuration
-cargo run
-
-# Start with custom configuration
-cargo run -- -c /path/to/custom_config.toml
-
-# Override host and port
-cargo run -- --host 192.168.1.100 --port 2775
-
-# Create default configuration file
-cargo run -- --create-config
-```
-
-### Client Usage
-
-```bash
-# Interactive user simulation
-cargo run -- user 1234567890
-
-# Automated test suite
-cargo run -- test
-
-# Basic client mode
-cargo run -- client 1234567890
-
-# With custom configuration
-cargo run -- -c custom_config.toml user 9876543210
-
-# Override server settings
-cargo run -- --host 192.168.1.100 --port 2775 test
-
-# Create default configuration
-cargo run -- --create-config
 ```
 
 ## Integration Testing
@@ -408,29 +380,30 @@ ussd-smpp-system/
 - **Data Coding**: GSM 7-bit (default)
 - **Message Flow**: Request → Response → [Continue session or terminate]
 
-## Troubleshooting
+## 🚨 Troubleshooting
 
 ### Common Issues
 
-1. **Connection Refused**
-   - Ensure server is running
-   - Check host/port configuration
-   - Verify firewall settings
+1. **Address already in use**
+   ```bash
+   pkill -f ussd_smpp_simulator
+   ```
 
-2. **Bind Failures**
-   - Check system_id and password in configuration
-   - Verify server authentication settings
+2. **Client connection refused**
+   - Ensure server is running first
+   - Check port configuration (default: 2775)
 
-3. **Configuration Errors**
-   - Use `--create-config` to generate default configurations
-   - Validate TOML syntax
+3. **No response from custom codes**
+   - Verify client simulator is running
+   - Check `forwarding_clients` configuration
+   - Ensure USSD code is mapped in client config
 
-4. **Port Already in Use**
-   - Kill existing processes: `pkill -f ussd_smpp_simulator`
-   - Change port in configuration files
+4. **Permission denied**
+   ```bash
+   chmod +x target/release/ussd_*
+   ```
 
 ### Debug Mode
-
 Enable debug logging in configuration files:
 ```toml
 [logging]
@@ -445,8 +418,52 @@ This provides detailed information about:
 
 ## License
 
-This project is provided as-is for educational and testing purposes.
+## 📊 Performance Testing
 
-## Contributing
+The system includes built-in performance testing capabilities:
+
+- Response time monitoring
+- Success/failure rate tracking  
+- Connection stability testing
+- Load testing with configurable response percentages
+
+## 🛠️ Development
+
+### Project Structure
+```
+├── ussd_smpp_simulator/          # SMPP Server
+│   ├── src/main.rs               # Server logic
+│   ├── config.toml               # Server configuration
+│   └── Cargo.toml
+├── ussd_smpp_client_simulator/   # Client Simulator
+│   ├── src/
+│   │   ├── main.rs              # Client logic
+│   │   ├── smpp.rs              # SMPP handling
+│   │   └── ussd.rs              # USSD menu system
+│   ├── client_config.toml       # Client configuration
+│   └── Cargo.toml
+├── ussd_user_simulator/          # User Simulator
+│   ├── src/main.rs              # User interface
+│   ├── user_config.toml         # User configuration
+│   └── Cargo.toml
+└── README.md                     # This file
+```
+
+### Adding New Services
+1. Add new USSD codes to client configuration
+2. Implement menu handlers in `ussd.rs`
+3. Update routing logic if needed
+4. Test with user simulator
+
+### Testing Scripts
+- `test_complete_forwarding.py` - End-to-end testing
+- `test_integration.sh` - Integration testing
+- `test_user_simulator.sh` - User simulator testing
+
+## 🤝 Contributing
 
 Feel free to submit issues and enhancement requests!
+
+---
+
+**Note**: This is a simulation system for development and testing purposes. It demonstrates USSD/SMPP protocol interactions and should not be used in production environments without proper security and reliability enhancements.

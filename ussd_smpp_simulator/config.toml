@@ -14,9 +14,10 @@ port = 9091
 system_id = "ForwardingClient"
 password = "forward123"
 forwarding_clients = ["ForwardingClient", "JavaClient"]
+user_clients = ["USSDMobileUser"]
 
 [ussd]
-service_codes = ["*123#", "*999#", "*100#", "*199#"]
+service_codes = ["*199#","*123#","*100#"]  # Only handle *199# directly, forward others to client
 session_timeout = 180
 
 [ussd.menu]

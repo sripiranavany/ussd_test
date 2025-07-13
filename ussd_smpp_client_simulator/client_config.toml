@@ -1,0 +1,192 @@
+[client]
+host = "127.0.0.1"
+port = 2775
+system_id = "ForwardingClient"
+password = "forward123"
+bind_type = "transceiver"
+auto_reconnect = true
+heartbeat_interval = 30
+
+[logging]
+level = "debug"
+debug = true
+
+# Custom USSD codes that this client will handle
+[ussd_codes]
+# Default/fallback menu for unrecognized USSD codes
+default_menu = "main"
+
+# Define specific USSD codes and their target menus
+codes = [
+    { code = "*999#", menu = "main", description = "Main Services Menu" },
+    { code = "*100#", menu = "banking", description = "Banking Services" },
+    { code = "*200#", menu = "mobile", description = "Mobile Services" },
+    { code = "*300#", menu = "utilities", description = "Utilities" },
+    { code = "*400#", menu = "support", description = "Help & Support" },
+    { code = "*123#", menu = "main", description = "Alternative Main Menu" },
+    { code = "*555*1#", menu = "main", description = "Test USSD Code" },
+]
+
+# Configure which USSD codes this client should handle
+# If empty, handles all USSD codes
+# If specified, only handles codes in this list
+handle_codes = ["*999#", "*100#", "*200#", "*300#", "*400#", "*123#", "*555*1#"]
+
+# What to do with unrecognized USSD codes
+unrecognized_action = "forward"  # Options: "forward", "reject", "default_menu"
+unrecognized_message = "🚫 USSD code not recognized. Please try *999# for main menu."
+
+[menus]
+# Default menu when no specific menu is configured
+default_menu = "main"
+
+# Define custom USSD menu structures
+[menus.main]
+title = "🏠 Custom Services Menu"
+options = [
+    { key = "1", text = "💰 Bank Services", action = "submenu", target = "banking" },
+    { key = "2", text = "📱 Mobile Services", action = "submenu", target = "mobile" },
+    { key = "3", text = "🎯 Utilities", action = "submenu", target = "utilities" },
+    { key = "4", text = "ℹ️ Help & Support", action = "submenu", target = "support" },
+    { key = "0", text = "❌ Exit", action = "exit", target = "" }
+]
+
+[menus.banking]
+title = "💰 Banking Services"
+options = [
+    { key = "1", text = "💳 Check Balance", action = "response", target = "balance_check" },
+    { key = "2", text = "💸 Transfer Money", action = "submenu", target = "transfer" },
+    { key = "3", text = "📊 Mini Statement", action = "response", target = "mini_statement" },
+    { key = "4", text = "🔒 Block/Unblock Card", action = "submenu", target = "card_management" },
+    { key = "0", text = "🔙 Back to Main Menu", action = "submenu", target = "main" }
+]
+
+[menus.mobile]
+title = "📱 Mobile Services"
+options = [
+    { key = "1", text = "📊 Check Data Balance", action = "response", target = "data_balance" },
+    { key = "2", text = "🔢 Buy Data Package", action = "submenu", target = "data_packages" },
+    { key = "3", text = "⏰ Check Call History", action = "response", target = "call_history" },
+    { key = "4", text = "🎵 Set Caller Tune", action = "submenu", target = "caller_tune" },
+    { key = "0", text = "🔙 Back to Main Menu", action = "submenu", target = "main" }
+]
+
+[menus.utilities]
+title = "🎯 Utilities"
+options = [
+    { key = "1", text = "💡 Pay Electricity Bill", action = "response", target = "electricity_bill" },
+    { key = "2", text = "💧 Pay Water Bill", action = "response", target = "water_bill" },
+    { key = "3", text = "🌐 Pay Internet Bill", action = "response", target = "internet_bill" },
+    { key = "4", text = "📺 Pay TV Subscription", action = "response", target = "tv_subscription" },
+    { key = "0", text = "🔙 Back to Main Menu", action = "submenu", target = "main" }
+]
+
+[menus.support]
+title = "ℹ️ Help & Support"
+options = [
+    { key = "1", text = "📞 Contact Support", action = "response", target = "contact_support" },
+    { key = "2", text = "❓ FAQ", action = "response", target = "faq" },
+    { key = "3", text = "📍 Find Branch", action = "response", target = "branch_locator" },
+    { key = "4", text = "📋 Service Status", action = "response", target = "service_status" },
+    { key = "0", text = "🔙 Back to Main Menu", action = "submenu", target = "main" }
+]
+
+[menus.transfer]
+title = "💸 Money Transfer"
+options = [
+    { key = "1", text = "🏦 Bank Transfer", action = "response", target = "bank_transfer" },
+    { key = "2", text = "📱 Mobile Transfer", action = "response", target = "mobile_transfer" },
+    { key = "3", text = "💳 Card Transfer", action = "response", target = "card_transfer" },
+    { key = "0", text = "🔙 Back to Banking Menu", action = "submenu", target = "banking" }
+]
+
+[menus.data_packages]
+title = "📊 Data Packages"
+options = [
+    { key = "1", text = "📱 Daily Packages", action = "response", target = "daily_data" },
+    { key = "2", text = "📅 Weekly Packages", action = "response", target = "weekly_data" },
+    { key = "3", text = "🗓️ Monthly Packages", action = "response", target = "monthly_data" },
+    { key = "0", text = "🔙 Back to Mobile Menu", action = "submenu", target = "mobile" }
+]
+
+[menus.card_management]
+title = "🔒 Card Management"
+options = [
+    { key = "1", text = "🛑 Block Card", action = "response", target = "block_card" },
+    { key = "2", text = "✅ Unblock Card", action = "response", target = "unblock_card" },
+    { key = "3", text = "📊 Card Status", action = "response", target = "card_status" },
+    { key = "0", text = "🔙 Back to Banking Menu", action = "submenu", target = "banking" }
+]
+
+[menus.caller_tune]
+title = "🎵 Caller Tune"
+options = [
+    { key = "1", text = "🎼 Browse Tunes", action = "response", target = "browse_tunes" },
+    { key = "2", text = "⭐ Popular Tunes", action = "response", target = "popular_tunes" },
+    { key = "3", text = "🎤 My Tunes", action = "response", target = "my_tunes" },
+    { key = "0", text = "🔙 Back to Mobile Menu", action = "submenu", target = "mobile" }
+]
+
+# Response templates for different actions
+[responses]
+balance_check = "💰 Your Account Balance:\n\n💳 Savings: $2,450.75\n💼 Current: $1,230.50\n💎 Fixed Deposit: $10,000.00\n\n📅 Last Updated: Today 2:30 PM"
+
+mini_statement = "📊 Mini Statement (Last 5 Transactions):\n\n1. 💸 Transfer to John - $150.00\n2. 💳 ATM Withdrawal - $200.00\n3. 💰 Salary Credit - $3,500.00\n4. 📱 Mobile Recharge - $25.00\n5. 🛒 Online Purchase - $89.99\n\nFor detailed statement, visit nearest branch."
+
+data_balance = "📱 Your Data Balance:\n\n📊 Main Balance: 2.5 GB\n🎁 Bonus Data: 500 MB\n📅 Valid Until: 15 days\n💰 Data Value: $12.50\n\n📞 Dial *199# for more options"
+
+call_history = "⏰ Recent Call History:\n\n📞 +1234567890 - 5 min (Outgoing)\n📞 +0987654321 - 12 min (Incoming)\n📞 +1122334455 - 3 min (Outgoing)\n📞 +5566778899 - 8 min (Incoming)\n\nTotal minutes used today: 28 min"
+
+electricity_bill = "💡 Electricity Bill Payment:\n\n🏠 Account: 123456789\n💰 Amount Due: $85.50\n📅 Due Date: 25th Dec 2024\n\n💳 Pay now?\n1. Yes, Pay Now\n2. View Bill Details\n0. Cancel"
+
+water_bill = "💧 Water Bill Payment:\n\n🏠 Account: WTR789123\n💰 Amount Due: $45.25\n📅 Due Date: 28th Dec 2024\n🚰 Usage: 8,500 gallons\n\n💳 Pay now?\n1. Yes, Pay Now\n2. View Usage Details\n0. Cancel"
+
+internet_bill = "🌐 Internet Bill Payment:\n\n🏠 Account: INT456789\n💰 Amount Due: $65.00\n📅 Due Date: 30th Dec 2024\n📊 Plan: 100 Mbps Unlimited\n\n💳 Pay now?\n1. Yes, Pay Now\n2. Upgrade Plan\n0. Cancel"
+
+tv_subscription = "📺 TV Subscription Payment:\n\n🏠 Account: TV987654\n💰 Amount Due: $35.00\n📅 Due Date: 22nd Dec 2024\n📺 Package: Premium Sports\n\n💳 Renew now?\n1. Yes, Renew\n2. Change Package\n0. Cancel"
+
+contact_support = "📞 Contact Support:\n\n🔧 Technical Support: 1-800-TECH\n💰 Billing Support: 1-800-BILL\n📱 Mobile Support: 1-800-MOBILE\n🌐 Online Chat: www.support.com\n\n⏰ Hours: 24/7\n📧 Email: support@company.com"
+
+faq = "❓ Frequently Asked Questions:\n\n1. 🔒 How to reset PIN?\n2. 💳 How to block card?\n3. 📱 How to check balance?\n4. 💸 Transfer limits?\n5. 🌐 Online banking setup?\n\n📞 Call 1-800-HELP for more info"
+
+branch_locator = "📍 Find Nearest Branch:\n\n🏢 Main Branch: 123 Main St\n   📞 (555) 123-4567\n   ⏰ Mon-Fri: 9AM-5PM\n\n🏢 Downtown Branch: 456 Oak Ave\n   📞 (555) 987-6543\n   ⏰ Mon-Sat: 8AM-6PM\n\n🌐 Visit: www.branchlocator.com"
+
+service_status = "📋 Service Status:\n\n✅ Online Banking: Active\n✅ Mobile App: Active\n✅ ATM Network: Active\n⚠️ Card Services: Maintenance (2-4 AM)\n✅ Phone Support: Active\n\n🔄 Last Updated: 2:45 PM"
+
+bank_transfer = "🏦 Bank Transfer:\n\n💳 Enter recipient account number:\n📱 Or scan QR code\n\n💰 Transfer Limits:\n• Daily: $5,000\n• Per Transaction: $2,500\n\n🔒 Secure & Instant Transfer\n📞 Support: 1-800-TRANSFER"
+
+mobile_transfer = "📱 Mobile Transfer:\n\n📞 Enter mobile number:\n💰 Enter amount:\n\n💸 Transfer Fees:\n• Up to $100: Free\n• $100-$500: $1.50\n• Above $500: $2.00\n\n⚡ Instant Transfer"
+
+card_transfer = "💳 Card Transfer:\n\n💳 Enter card number:\n🔒 Enter security code:\n\n💰 Transfer Limits:\n• Daily: $3,000\n• Per Transaction: $1,500\n\n🔒 Secure Processing\n📞 Support: 1-800-CARDS"
+
+daily_data = "📱 Daily Data Packages:\n\n📊 100 MB - $1.00\n📊 500 MB - $3.00\n📊 1 GB - $5.00\n📊 2 GB - $8.00\n\n⏰ Valid for 24 hours\n💰 Auto-renewal available\n\n📞 Reply with package number to subscribe"
+
+weekly_data = "📅 Weekly Data Packages:\n\n📊 1 GB - $10.00\n📊 3 GB - $25.00\n📊 5 GB - $35.00\n📊 10 GB - $60.00\n\n⏰ Valid for 7 days\n🎁 Bonus data included\n\n📞 Reply with package number to subscribe"
+
+monthly_data = "🗓️ Monthly Data Packages:\n\n📊 5 GB - $30.00\n📊 15 GB - $70.00\n📊 25 GB - $100.00\n📊 50 GB - $150.00\n\n⏰ Valid for 30 days\n🎁 Unlimited social media\n\n📞 Reply with package number to subscribe"
+
+block_card = "🛑 Block Card Service:\n\n🔒 Your card will be blocked immediately\n🚨 No transactions will be allowed\n📞 You can unblock anytime\n\n⚠️ Are you sure?\n1. Yes, Block Card\n2. No, Cancel\n\n📞 Emergency: 1-800-BLOCK"
+
+unblock_card = "✅ Unblock Card Service:\n\n🔓 Your card will be unblocked\n💳 All transactions will be enabled\n🔒 Use your PIN for security\n\n✅ Confirm unblock?\n1. Yes, Unblock Card\n2. No, Cancel\n\n📞 Support: 1-800-UNBLOCK"
+
+card_status = "📊 Card Status:\n\n💳 Card Number: ****-****-****-1234\n✅ Status: Active\n💰 Daily Limit: $1,000\n🛒 Online Shopping: Enabled\n🌍 International: Enabled\n\n📅 Expires: 12/2027\n🔒 Last Used: Today 1:15 PM"
+
+browse_tunes = "🎼 Browse Caller Tunes:\n\n🎵 Latest Hits\n🎸 Rock Collection\n🎤 Pop Favorites\n🎯 Regional Hits\n🎺 Classical Music\n\n💰 $2.99/month per tune\n🎁 First week free\n\n📞 Reply with category number"
+
+popular_tunes = "⭐ Popular Caller Tunes:\n\n🎵 \"Perfect\" - Ed Sheeran\n🎵 \"Blinding Lights\" - The Weeknd\n🎵 \"Shape of You\" - Ed Sheeran\n🎵 \"Watermelon Sugar\" - Harry Styles\n🎵 \"Levitating\" - Dua Lipa\n\n💰 $2.99/month\n📞 Reply with song number"
+
+my_tunes = "🎤 My Caller Tunes:\n\n🎵 Currently Active:\n   \"Perfect\" - Ed Sheeran\n   📅 Expires: Jan 15, 2025\n\n🎵 Recently Played:\n   \"Blinding Lights\" - The Weeknd\n   \"Shape of You\" - Ed Sheeran\n\n💰 Manage subscriptions\n📞 Call 1-800-TUNES"
+
+# Default responses for unknown options
+[responses.defaults]
+invalid_option = "❌ Invalid option selected.\nPlease choose from the available options or press 0 to go back."
+session_timeout = "⏰ Session timed out due to inactivity.\nPlease dial the USSD code again to restart."
+system_error = "🔧 System temporarily unavailable.\nPlease try again later or contact support at 1-800-HELP."
+exit_message = "👋 Thank you for using our services!\nHave a great day!"
+
+# Session management
+[session]
+timeout_seconds = 300
+max_menu_depth = 10
+enable_back_navigation = true
+remember_last_menu = true

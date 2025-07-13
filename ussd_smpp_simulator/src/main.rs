@@ -35,9 +35,25 @@ impl ConnectionManager {
     fn get_forwarding_connection(&self, sessions: &HashMap<String, Session>) -> Option<Arc<Mutex<TcpStream>>> {
         let connections = self.connections.lock().unwrap();
         
-        // Find first session that can receive forwards and has an active connection
+        // Find first session that can receive forwards (custom USSD handlers) and has an active connection
         for (_, session) in sessions {
-            if session.can_receive_forwards && session.bound {
+            if session.can_receive_forwards && session.bound && !session.is_user_client {
+                if let Some(conn_id) = &session.connection_id {
+                    if let Some(stream) = connections.get(conn_id) {
+                        return Some(stream.clone());
+                    }
+                }
+            }
+        }
+        None
+    }
+    
+    fn get_user_connection(&self, sessions: &HashMap<String, Session>) -> Option<Arc<Mutex<TcpStream>>> {
+        let connections = self.connections.lock().unwrap();
+        
+        // Find first session that is a user client and has an active connection
+        for (_, session) in sessions {
+            if session.is_user_client && session.bound {
                 if let Some(conn_id) = &session.connection_id {
                     if let Some(stream) = connections.get(conn_id) {
                         return Some(stream.clone());
@@ -121,7 +137,8 @@ pub struct ClientSimulatorConfig {
     pub port: u16,
     pub system_id: String,
     pub password: String,
-    pub forwarding_clients: Vec<String>, // List of system IDs that can receive forwards
+    pub forwarding_clients: Vec<String>, // List of system IDs that handle custom USSD codes
+    pub user_clients: Vec<String>, // List of system IDs that are user simulators
 }
 
 #[derive(Debug, Deserialize, Serialize)]
@@ -190,6 +207,7 @@ impl Default for Config {
                 system_id: "USSDClient".to_string(),
                 password: "password123".to_string(),
                 forwarding_clients: vec!["ForwardingClient".to_string(), "JavaClient".to_string()],
+                user_clients: vec!["USSDMobileUser".to_string()],
             },
             logging: LoggingConfig {
                 debug: false,
@@ -279,6 +297,7 @@ pub struct Session {
     pub bound: bool,
     pub bind_type: u32,
     pub can_receive_forwards: bool,
+    pub is_user_client: bool,
     pub connection_id: Option<String>,
 }
 
@@ -303,6 +322,28 @@ pub struct SubmitSmPdu {
     pub sm_length: u8,
     pub short_message: Vec<u8>,
     pub optional_params: Vec<OptionalParam>,
+}
+
+#[derive(Debug, Clone)]
+pub struct DeliverSmPdu {
+    pub service_type: String,
+    pub source_addr_ton: u8,
+    pub source_addr_npi: u8,
+    pub source_addr: String,
+    pub dest_addr_ton: u8,
+    pub dest_addr_npi: u8,
+    pub destination_addr: String,
+    pub esm_class: u8,
+    pub protocol_id: u8,
+    pub priority_flag: u8,
+    pub schedule_delivery_time: String,
+    pub validity_period: String,
+    pub registered_delivery: u8,
+    pub replace_if_present_flag: u8,
+    pub data_coding: u8,
+    pub sm_default_msg_id: u8,
+    pub sm_length: u8,
+    pub short_message: Vec<u8>,
 }
 
 #[derive(Debug, Clone)]
@@ -466,6 +507,12 @@ impl UssdConnectionHandler {
             SUBMIT_SM => {
                 self.handle_ussd_submit_sm(pdu)?;
             }
+            SUBMIT_SM_RESP => {
+                self.handle_submit_sm_resp(pdu)?;
+            }
+            DELIVER_SM => {
+                self.handle_deliver_sm(pdu)?;
+            }
             DELIVER_SM_RESP => {
                 self.handle_deliver_sm_resp(pdu)?;
             }
@@ -492,12 +539,17 @@ impl UssdConnectionHandler {
             let can_receive_forwards = self.config.client_simulator.forwarding_clients
                 .contains(&system_id);
             
+            // Check if this is a user client
+            let is_user_client = self.config.client_simulator.user_clients
+                .contains(&system_id);
+            
             let session = Session {
                 system_id: system_id.clone(),
                 password: password.clone(),
                 bound: true,
                 bind_type: pdu.header.command_id,
                 can_receive_forwards,
+                is_user_client,
                 connection_id: Some(self.connection_id.clone()),
             };
             
@@ -505,8 +557,10 @@ impl UssdConnectionHandler {
             sessions.insert(system_id.clone(), session);
             self.current_session = Some(system_id.clone());
             
-            if can_receive_forwards {
-                println!("Bind successful for system_id: {} (can receive forwards)", system_id);
+            if is_user_client {
+                println!("Bind successful for system_id: {} (user client)", system_id);
+            } else if can_receive_forwards {
+                println!("Bind successful for system_id: {} (forwarding client)", system_id);
             } else {
                 println!("Bind successful for system_id: {} (regular client)", system_id);
             }
@@ -596,9 +650,13 @@ impl UssdConnectionHandler {
             self.generate_ussd_response(session, &ussd_code)
         };
         
-        // Send DELIVER_SM with USSD response
-        thread::sleep(Duration::from_millis(50)); // Minimal delay
-        self.send_ussd_response(&msisdn, &response_text)?;
+        // Send DELIVER_SM with USSD response only if we have a response
+        if !response_text.is_empty() {
+            thread::sleep(Duration::from_millis(50)); // Minimal delay
+            self.send_ussd_response(&msisdn, &response_text)?;
+        } else {
+            println!("No immediate response to send - waiting for forwarded response via DELIVER_SM");
+        }
         
         Ok(())
     }
@@ -615,10 +673,11 @@ impl UssdConnectionHandler {
                 } else {
                     // Try to forward to bound client
                     match self.forward_to_bound_client(&session.msisdn, request) {
-                        Ok(response) => {
+                        Ok(_) => {
                             session.state = UssdState::Forwarded;
-                            println!("Forwarded USSD code {} to bound client, response: {}", request, response);
-                            response
+                            println!("Forwarded USSD code {} to bound client", request);
+                            // Return empty string - the real response will come via DELIVER_SM
+                            String::new()
                         }
                         Err(e) => {
                             println!("Failed to forward USSD code {} to bound client: {}", request, e);
@@ -693,13 +752,10 @@ impl UssdConnectionHandler {
             UssdState::Forwarded => {
                 // Continue forwarding requests to bound client
                 match self.forward_to_bound_client(&session.msisdn, request) {
-                    Ok(response) => {
-                        println!("Forwarded follow-up USSD request {} to bound client, response: {}", request, response);
-                        // Check if the response indicates session should end
-                        if response.to_lowercase().contains("thank you") || response.to_lowercase().contains("goodbye") {
-                            session.state = UssdState::Terminated;
-                        }
-                        response
+                    Ok(_) => {
+                        println!("Forwarded follow-up USSD request {} to bound client", request);
+                        // Return empty string - the real response will come via DELIVER_SM
+                        String::new()
                     }
                     Err(e) => {
                         println!("Failed to forward follow-up USSD request {} to bound client: {}", request, e);
@@ -764,9 +820,21 @@ impl UssdConnectionHandler {
             body,
         };
 
-        self.send_pdu(deliver_sm)?;
-        if self.config.logging.debug {
-            println!("📦 DELIVER_SM sent with command_id: 0x{:08x}, body_length: {}", DELIVER_SM, body_len);
+        // Send response to user simulator (not forwarding client)
+        let sessions = self.sessions.lock().unwrap();
+        if let Some(user_stream) = self.connection_manager.get_user_connection(&sessions) {
+            println!("📤 Sending DELIVER_SM to user simulator");
+            let mut stream = user_stream.lock().unwrap();
+            if let Err(e) = self.send_pdu_to_stream(&mut *stream, deliver_sm) {
+                println!("⚠️  Error sending to user simulator: {}", e);
+                return Err(std::io::Error::new(std::io::ErrorKind::Other, e));
+            }
+            if self.config.logging.debug {
+                println!("📦 DELIVER_SM sent to user simulator with command_id: 0x{:08x}, body_length: {}", DELIVER_SM, body_len);
+            }
+        } else {
+            println!("⚠️  No user connection found for user simulator");
+            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "No user connection available"));
         }
         println!("USSD response sent to {}: {}", msisdn, response_text);
         
@@ -833,6 +901,49 @@ impl UssdConnectionHandler {
         }
     }
 
+    fn parse_deliver_sm(&self, body: &[u8]) -> DeliverSmPdu {
+        let mut pos = 0;
+        let service_type = self.read_c_string(body, &mut pos);
+        let source_addr_ton = body[pos]; pos += 1;
+        let source_addr_npi = body[pos]; pos += 1;
+        let source_addr = self.read_c_string(body, &mut pos);
+        let dest_addr_ton = body[pos]; pos += 1;
+        let dest_addr_npi = body[pos]; pos += 1;
+        let destination_addr = self.read_c_string(body, &mut pos);
+        let esm_class = body[pos]; pos += 1;
+        let protocol_id = body[pos]; pos += 1;
+        let priority_flag = body[pos]; pos += 1;
+        let schedule_delivery_time = self.read_c_string(body, &mut pos);
+        let validity_period = self.read_c_string(body, &mut pos);
+        let registered_delivery = body[pos]; pos += 1;
+        let replace_if_present_flag = body[pos]; pos += 1;
+        let data_coding = body[pos]; pos += 1;
+        let sm_default_msg_id = body[pos]; pos += 1;
+        let sm_length = body[pos]; pos += 1;
+        let short_message = body[pos..pos + sm_length as usize].to_vec();
+
+        DeliverSmPdu {
+            service_type,
+            source_addr_ton,
+            source_addr_npi,
+            source_addr,
+            dest_addr_ton,
+            dest_addr_npi,
+            destination_addr,
+            esm_class,
+            protocol_id,
+            priority_flag,
+            schedule_delivery_time,
+            validity_period,
+            registered_delivery,
+            replace_if_present_flag,
+            data_coding,
+            sm_default_msg_id,
+            sm_length,
+            short_message,
+        }
+    }
+
     fn parse_bind_request(&self, body: &[u8]) -> (String, String) {
         let mut pos = 0;
         let system_id = self.read_c_string(body, &mut pos);
@@ -869,6 +980,75 @@ impl UssdConnectionHandler {
 
     fn handle_deliver_sm_resp(&mut self, _pdu: SmppPdu) -> std::io::Result<()> {
         println!("Received DELIVER_SM_RESP");
+        Ok(())
+    }
+
+    fn handle_submit_sm_resp(&mut self, pdu: SmppPdu) -> std::io::Result<()> {
+        println!("Received SUBMIT_SM_RESP from client");
+        
+        if self.config.logging.debug {
+            println!("📨 SUBMIT_SM_RESP: cmd=0x{:08x}, status=0x{:08x}, seq={}", 
+                pdu.header.command_id, pdu.header.command_status, pdu.header.sequence_number);
+        }
+        
+        if pdu.header.command_status == ESME_ROK {
+            // Extract message_id from body if present
+            if !pdu.body.is_empty() {
+                let message_id = self.read_c_string(&pdu.body, &mut 0);
+                println!("SUBMIT_SM_RESP received with message_id: {}", message_id);
+            } else {
+                println!("SUBMIT_SM_RESP received successfully");
+            }
+        } else {
+            println!("SUBMIT_SM_RESP received with error status: 0x{:08x}", pdu.header.command_status);
+        }
+        
+        Ok(())
+    }
+
+    fn handle_deliver_sm(&mut self, pdu: SmppPdu) -> std::io::Result<()> {
+        println!("Received DELIVER_SM from client");
+        
+        if self.config.logging.debug {
+            println!("📨 DELIVER_SM: cmd=0x{:08x}, body_len={}", 
+                pdu.header.command_id, pdu.body.len());
+        }
+        
+        // Parse the DELIVER_SM to extract the menu response
+        let deliver_sm = self.parse_deliver_sm(&pdu.body);
+        
+        if self.config.logging.debug {
+            println!("📨 DELIVER_SM parsed - source: {}, dest: {}, message: {:?}", 
+                deliver_sm.source_addr, deliver_sm.destination_addr, 
+                String::from_utf8_lossy(&deliver_sm.short_message));
+        }
+        
+        // Send DELIVER_SM_RESP to acknowledge receipt from client
+        let response = SmppPdu {
+            header: SmppHeader {
+                command_length: 16,
+                command_id: DELIVER_SM_RESP,
+                command_status: ESME_ROK,
+                sequence_number: pdu.header.sequence_number,
+            },
+            body: Vec::new(),
+        };
+        
+        self.send_pdu(response)?;
+        println!("DELIVER_SM_RESP sent to client");
+        
+        // This DELIVER_SM contains the actual menu response from the client
+        // We need to forward this response back to the user simulator
+        let menu_response = String::from_utf8_lossy(&deliver_sm.short_message).to_string();
+        
+        println!("Received menu response from client: {}", menu_response);
+        println!("Forwarding this response to user simulator via DELIVER_SM");
+        
+        // Send the menu response to the user simulator via DELIVER_SM
+        self.send_ussd_response(&deliver_sm.destination_addr, &menu_response)?;
+        
+        println!("Menu response forwarded to user simulator");
+        
         Ok(())
     }
 
@@ -1175,9 +1355,10 @@ impl UssdConnectionHandler {
                 self.send_pdu_to_stream(&mut *stream, submit_sm)?;
             }
             
-            // Wait for response (simplified - in real implementation you'd handle this asynchronously)
-            // For now, return a default response
-            Ok("Request forwarded to bound client. Response handling not implemented yet.".to_string())
+            println!("Forwarded USSD request {} to bound client", ussd_code);
+            
+            // Return empty string - the real response will come via DELIVER_SM
+            Ok(String::new())
         } else {
             Err("No bound forwarding client available".to_string())
         }
